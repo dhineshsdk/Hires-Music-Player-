@@ -1,0 +1,99 @@
+#version 450
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#define FFT_SIZE 256
+#define HALF_SIZE 128
+#define NUM_PARTITIONS 1024
+
+struct Complex {
+    float r;
+    float i;
+};
+
+Complex complex_mul(Complex a, Complex b) {
+    return Complex(a.r * b.r - a.i * b.i, a.r * b.i + a.i * b.r);
+}
+
+layout(std430, binding = 0) readonly buffer InputTimeDomain {
+    float in_samples[];
+};
+
+layout(std430, binding = 1) readonly buffer PartitionIRFDL {
+    Complex ir_partitions[];
+};
+
+layout(std430, binding = 2) buffer FDLHistory {
+    Complex fdl_history[];
+};
+
+layout(std430, binding = 3) writeonly buffer OutputTimeDomain {
+    float out_samples[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint write_idx;
+} push;
+
+shared Complex lds_scratch[FFT_SIZE];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint total_threads = gl_WorkGroupSize.x;
+
+    for (uint i = tid; i < FFT_SIZE; i += total_threads) {
+        lds_scratch[i].r = in_samples[i];
+        lds_scratch[i].i = 0.0;
+    }
+    barrier();
+
+    for (uint stride = FFT_SIZE / 2; stride > 0; stride /= 2) {
+        for (uint i = tid; i < FFT_SIZE / 2; i += total_threads) {
+            uint j = ((i / stride) * (stride * 2)) + (i % stride);
+            Complex u = lds_scratch[j];
+            Complex v = lds_scratch[j + stride];
+            float angle = -2.0 * 3.14159265358979323846 * float(i % stride) / float(stride * 2);
+            Complex twiddle = Complex(cos(angle), sin(angle));
+            Complex v_twiddled = complex_mul(v, twiddle);
+            lds_scratch[j] = Complex(u.r + v_twiddled.r, u.i + v_twiddled.i);
+            lds_scratch[j + stride] = Complex(u.r - v_twiddled.r, u.i - v_twiddled.i);
+        }
+        barrier();
+    }
+
+    for (uint i = tid; i < FFT_SIZE; i += total_threads) {
+        fdl_history[push.write_idx * FFT_SIZE + i] = lds_scratch[i];
+    }
+    barrier();
+
+    for (uint bin = tid; bin < FFT_SIZE; bin += total_threads) {
+        Complex accum = Complex(0.0, 0.0);
+        for (uint p = 0; p < NUM_PARTITIONS; ++p) {
+            uint hist_idx = (push.write_idx + NUM_PARTITIONS - p) % NUM_PARTITIONS;
+            Complex X = fdl_history[hist_idx * FFT_SIZE + bin];
+            Complex H = ir_partitions[p * FFT_SIZE + bin];
+            Complex prod = complex_mul(X, H);
+            accum.r += prod.r;
+            accum.i += prod.i;
+        }
+        lds_scratch[bin] = accum;
+    }
+    barrier();
+
+    for (uint stride = 1; stride < FFT_SIZE; stride *= 2) {
+        for (uint i = tid; i < FFT_SIZE / 2; i += total_threads) {
+            uint j = ((i / stride) * (stride * 2)) + (i % stride);
+            Complex u = lds_scratch[j];
+            Complex v = lds_scratch[j + stride];
+            float angle = 2.0 * 3.14159265358979323846 * float(i % stride) / float(stride * 2);
+            Complex twiddle = Complex(cos(angle), sin(angle));
+            Complex v_twiddled = complex_mul(v, twiddle);
+            lds_scratch[j] = Complex(u.r + v_twiddled.r, u.i + v_twiddled.i);
+            lds_scratch[j + stride] = Complex(u.r - v_twiddled.r, u.i - v_twiddled.i);
+        }
+        barrier();
+    }
+
+    for (uint i = tid; i < HALF_SIZE; i += total_threads) {
+        out_samples[i] = lds_scratch[i + HALF_SIZE].r / float(FFT_SIZE);
+    }
+}

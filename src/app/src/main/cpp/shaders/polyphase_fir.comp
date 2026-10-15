@@ -1,0 +1,33 @@
+#version 450
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#define TAPS_PER_PHASE 32
+#define DECIMATION_FACTOR 2
+
+layout(std430, binding = 0) readonly buffer HighRateInput {
+    float in_samples[];
+};
+
+layout(std430, binding = 1) readonly buffer PolyphaseCoefficients {
+    float subfilter_taps[];
+};
+
+layout(std430, binding = 2) writeonly buffer DecimatedOutput {
+    float out_samples[];
+};
+
+layout(push_constant) uniform PolyphaseParams {
+    uint num_output_samples;
+} params;
+
+void main() {
+    uint out_idx = gl_GlobalInvocationID.x;
+    if (out_idx >= params.num_output_samples) return;
+
+    float acc = 0.0;
+    uint input_anchor = out_idx * DECIMATION_FACTOR;
+    for (uint tap = 0; tap < TAPS_PER_PHASE; ++tap) {
+        acc += in_samples[input_anchor + tap] * subfilter_taps[tap];
+    }
+    out_samples[out_idx] = acc;
+}
