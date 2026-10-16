@@ -54,7 +54,7 @@ public:
             .b1 = (2.0 * A * ((A - 1.0) - (A + 1.0) * cosw0)) / a0,
             .b2 = (A * ((A + 1.0) - (A - 1.0) * cosw0 - 2.0 * std::sqrt(A) * alpha)) / a0,
             .a1 = (-2.0 * ((A - 1.0) + (A + 1.0) * cosw0)) / a0,
-            .a2 = ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * std::sqrt(A) * alpha)) / a0
+            .a2 = ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * std::sqrt(A) * alpha) / a0
         };
     }
 
@@ -281,7 +281,7 @@ public:
         };
         for (size_t i = 0; i < 24; ++i) {
             double u1 = std::max(1e-15, static_cast<double>(xorshift64()) / 18446744073709551615.0);
-            double u2 = static_cast<double>(xorshift64()) / 18446744073709551615.0);
+            double u2 = static_cast<double>(xorshift64()) / 18446744073709551615.0;
             double norm = std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * pi * u2);
             bitWeights_[i] = std::pow(2.0, -static_cast<double>(i + 1)) * (1.0 + norm * sigma);
         }

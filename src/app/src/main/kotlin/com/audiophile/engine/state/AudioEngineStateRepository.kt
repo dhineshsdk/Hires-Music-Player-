@@ -8,10 +8,7 @@ import com.audiophile.engine.hardware.UsbDeviceManagerBridge
 import com.audiophile.engine.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 /**
  * Central State Repository for the Bit-Perfect Hi-Res Audio Engine.
@@ -24,36 +21,13 @@ class AudioEngineStateRepository private constructor(context: Context) {
     val hardwareDatabase = HardwareProfileDatabase(context)
 
     // 1. Playback & Track Metadata
-    private val _trackMetadata = MutableStateFlow(
-        TrackMetadata(
-            title = "Symphony No. 5 in C Minor, Op. 67: I. Allegro con brio",
-            artist = "Carlos Kleiber, Wiener Philharmoniker",
-            album = "Beethoven: Symphonies Nos. 5 & 7 (24-Bit/192kHz Remaster)",
-            sampleRateHz = 192000,
-            bitDepth = 24,
-            format = "FLAC",
-            bitRateKbps = 5840,
-            channels = 2,
-            durationMs = 442000L,
-            currentPositionMs = 138400L,
-            isPlaying = true,
-            isMemoryPlayLoaded = true
-        )
-    )
+    // Empty until the playback engine reports a loaded track.
+    private val _trackMetadata = MutableStateFlow(TrackMetadata())
     val trackMetadata: StateFlow<TrackMetadata> = _trackMetadata.asStateFlow()
 
     // 2. ARM64 NEON Forensic Metrics
-    private val _forensicMetrics = MutableStateFlow(
-        AudioForensicMetrics(
-            activeBitsMask = 0x00FFFFFFL, // 24 active bits
-            hasTrue24BitDynamics = true,
-            isFakeUpsampled = false,
-            ultrasonicToBasebandRatio = 0.0482f,
-            estimatedDynamicRangeDb = 144.0f,
-            peakLevelDbfs = -0.1f,
-            rmsLevelDbfs = -16.2f
-        )
-    )
+    // Empty until the native ForensicStreamAuditor reports measurements from real samples.
+    private val _forensicMetrics = MutableStateFlow(AudioForensicMetrics())
     val forensicMetrics: StateFlow<AudioForensicMetrics> = _forensicMetrics.asStateFlow()
 
     // 3. DSP Rack State
@@ -63,7 +37,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
     val dspRackState: StateFlow<DspRackState> = _dspRackState.asStateFlow()
 
     // 4. Output Mode
-    private val _outputMode = MutableStateFlow(OutputMode.ModeD_Usbfs_StudioDSP)
+    private val _outputMode = MutableStateFlow(OutputMode.ModeA_StandardAndroid)
     val outputMode: StateFlow<OutputMode> = _outputMode.asStateFlow()
 
     // 5. Bluetooth Telemetry
@@ -100,37 +74,6 @@ class AudioEngineStateRepository private constructor(context: Context) {
         // Initialize USB and Bluetooth managers
         usbBridge.start()
         bluetoothTelemetryManager.initialize()
-
-        // Start real-time audio timecode ticker and realistic bit activity pulse
-        startRealtimeSimulationTicker()
-    }
-
-    private fun startRealtimeSimulationTicker() {
-        scope.launch {
-            while (true) {
-                delay(100)
-                if (_trackMetadata.value.isPlaying) {
-                    val currentPos = _trackMetadata.value.currentPositionMs + 100
-                    val dur = _trackMetadata.value.durationMs
-                    _trackMetadata.value = _trackMetadata.value.copy(
-                        currentPositionMs = if (currentPos >= dur) 0L else currentPos
-                    )
-
-                    // Simulate authentic 24-bit audio bit jitter on the lower LSBs (bits 1..8)
-                    // The MSB (bits 16..24) stay mostly active during music playback,
-                    // while LSB bits toggle rapidly based on sub-96dB noise floor and micro-detail.
-                    val currentMask = _forensicMetrics.value.activeBitsMask
-                    val randomLsbFlicker = (Random.nextLong(0, 0x100)) and 0xFFL
-                    val upperBits = 0x00FFFF00L // bits 9..24
-                    val updatedMask = upperBits or (if (_forensicMetrics.value.hasTrue24BitDynamics) randomLsbFlicker else 0x00L)
-
-                    _forensicMetrics.value = _forensicMetrics.value.copy(
-                        activeBitsMask = updatedMask,
-                        ultrasonicToBasebandRatio = if (_forensicMetrics.value.isFakeUpsampled) 1e-11f else (0.045f + Random.nextFloat() * 0.005f)
-                    )
-                }
-            }
-        }
     }
 
     // --- Interactive User Controls ---

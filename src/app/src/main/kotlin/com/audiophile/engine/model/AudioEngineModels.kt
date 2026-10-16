@@ -19,13 +19,13 @@ enum class OutputMode(val code: Int, val displayName: String, val description: S
  * Live audio forensic metrics computed by ARM64 NEON ForensicStreamAuditor.hpp
  */
 data class AudioForensicMetrics(
-    val activeBitsMask: Long = 0x00FFFFFFL, // 24-bit mask
-    val hasTrue24BitDynamics: Boolean = true,
+    val activeBitsMask: Long = 0L,
+    val hasTrue24BitDynamics: Boolean = false,
     val isFakeUpsampled: Boolean = false,
-    val ultrasonicToBasebandRatio: Float = 0.045f,
-    val estimatedDynamicRangeDb: Float = 144.0f,
-    val peakLevelDbfs: Float = -0.1f,
-    val rmsLevelDbfs: Float = -16.4f
+    val ultrasonicToBasebandRatio: Float = 0f,
+    val estimatedDynamicRangeDb: Float = 0f,
+    val peakLevelDbfs: Float = Float.NEGATIVE_INFINITY,
+    val rmsLevelDbfs: Float = Float.NEGATIVE_INFINITY
 ) {
     /**
      * True if the lowest 8 bits (LSB mask 0xFF) contain active audio energy.
@@ -48,13 +48,13 @@ data class AudioForensicMetrics(
  * Real-time Bluetooth codec telemetry extracted by BluetoothTelemetryManager.kt
  */
 data class BluetoothTelemetry(
-    val codecType: Int = 4, // BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC
-    val sampleRate: Int = 96000,
-    val bitDepth: Int = 24,
-    val ldacBitrateKbps: Int = 990,
+    val codecType: Int = -1, // No Bluetooth codec reported yet
+    val sampleRate: Int = 0,
+    val bitDepth: Int = 0,
+    val ldacBitrateKbps: Int = 0,
     val isSamsungSeamless: Boolean = false,
-    val bufferHealthPercent: Int = 98,
-    val transmissionLatencyMs: Int = 42
+    val bufferHealthPercent: Int = 0,
+    val transmissionLatencyMs: Int = 0
 ) {
     val codecName: String
         get() = when {
@@ -85,18 +85,18 @@ data class BluetoothTelemetry(
  * Metadata for the currently loaded audio track in ZeroFaultMemoryPlayBuffer
  */
 data class TrackMetadata(
-    val title: String = "Symphony No. 5 in C Minor, Op. 67: I. Allegro con brio",
-    val artist: String = "Vienna Philharmonic Orchestra, Carlos Kleiber",
-    val album: String = "Beethoven: Symphonies Nos. 5 & 7 (Remastered 24/192)",
-    val sampleRateHz: Int = 192000,
-    val bitDepth: Int = 24,
-    val format: String = "FLAC",
-    val bitRateKbps: Int = 5840,
-    val channels: Int = 2,
-    val durationMs: Long = 442000L,
-    val currentPositionMs: Long = 138400L,
-    val isPlaying: Boolean = true,
-    val isMemoryPlayLoaded: Boolean = true,
+    val title: String = "Nothing playing",
+    val artist: String = "",
+    val album: String = "",
+    val sampleRateHz: Int = 0,
+    val bitDepth: Int = 0,
+    val format: String = "",
+    val bitRateKbps: Int = 0,
+    val channels: Int = 0,
+    val durationMs: Long = 0L,
+    val currentPositionMs: Long = 0L,
+    val isPlaying: Boolean = false,
+    val isMemoryPlayLoaded: Boolean = false,
     val albumArtUri: String? = null
 ) {
     val formattedDuration: String

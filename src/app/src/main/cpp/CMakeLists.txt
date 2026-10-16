@@ -13,7 +13,12 @@ add_compile_options(
     -Wextra
     -fno-exceptions
     -fvisibility=hidden
+    -Werror=unguarded-availability
 )
+
+# minSdk is 29, but ADPF (APerformanceHint) is API 33+. Weak symbols plus
+# __builtin_available guards let one APK run on both.
+add_compile_definitions(__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
 
 include(FetchContent)
 FetchContent_Declare(
