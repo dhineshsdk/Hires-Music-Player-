@@ -1,11 +1,24 @@
 package com.audiophile.engine.state
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import androidx.core.content.ContextCompat
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.audiophile.engine.bluetooth.BluetoothTelemetryManager
 import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.hardware.HardwareProfileDatabase
 import com.audiophile.engine.hardware.UsbDeviceManagerBridge
 import com.audiophile.engine.model.*
+import com.audiophile.engine.service.DeterministicAudioService
+import com.audiophile.engine.service.PlaybackHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -17,7 +30,10 @@ import kotlinx.coroutines.flow.*
  */
 class AudioEngineStateRepository private constructor(context: Context) {
 
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(Dispatchers.Default)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var controller: MediaController? = null
     val hardwareDatabase = HardwareProfileDatabase(context)
 
     // 1. Playback & Track Metadata
@@ -47,7 +63,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
     // 6. USB Device Manager
     val usbBridge = UsbDeviceManagerBridge(context, hardwareDatabase) { autoLoadedPreset ->
         _dspRackState.value = autoLoadedPreset
-        _outputMode.value = OutputMode.ModeD_Usbfs_StudioDSP
+        // Audio still goes through Android's USB output until the direct driver exists (Phase 5).
+        _outputMode.value = OutputMode.ModeA_StandardAndroid
     }
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
 
@@ -77,16 +94,106 @@ class AudioEngineStateRepository private constructor(context: Context) {
         // Initialize USB and Bluetooth managers
         usbBridge.start()
         bluetoothTelemetryManager.initialize()
+        connectController()
     }
 
-    // --- Interactive User Controls ---
+    // --- Playback (Media3 controller connected to DeterministicAudioService) ---
+
+    private val controllerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            refreshTrackMetadata()
+            if (player.isPlaying) startPositionTicker()
+        }
+    }
+
+    private val positionTicker = object : Runnable {
+        override fun run() {
+            refreshTrackMetadata()
+            if (controller?.isPlaying == true) mainHandler.postDelayed(this, POSITION_TICK_MS)
+        }
+    }
+
+    private fun connectController() {
+        val token = SessionToken(appContext, ComponentName(appContext, DeterministicAudioService::class.java))
+        val future = MediaController.Builder(appContext, token).buildAsync()
+        future.addListener({
+            controller = runCatching { future.get() }.getOrNull()?.also {
+                it.addListener(controllerListener)
+                refreshTrackMetadata()
+            }
+        }, ContextCompat.getMainExecutor(appContext))
+    }
+
+    private fun startPositionTicker() {
+        mainHandler.removeCallbacks(positionTicker)
+        mainHandler.post(positionTicker)
+    }
+
+    private fun refreshTrackMetadata() {
+        val c = controller ?: return
+        val item = c.currentMediaItem
+        if (item == null) {
+            _trackMetadata.value = TrackMetadata()
+            return
+        }
+        val meta = c.mediaMetadata
+        val format = PlaybackHolder.player?.engineFormat?.value
+        val uri = item.requestMetadata.mediaUri ?: item.localConfiguration?.uri
+        val extension = uri?.lastPathSegment?.substringAfterLast('.', "")?.uppercase().orEmpty()
+        val sampleRate = format?.sampleRateHz ?: 0
+        val bitDepth = format?.bitDepth ?: 0
+        val channels = format?.channels ?: 0
+        _trackMetadata.value = TrackMetadata(
+            title = meta.title?.toString() ?: uri?.lastPathSegment ?: "Unknown track",
+            artist = meta.artist?.toString().orEmpty(),
+            album = meta.albumTitle?.toString().orEmpty(),
+            sampleRateHz = sampleRate,
+            bitDepth = bitDepth,
+            format = extension.ifEmpty { "PCM" },
+            // Decoded PCM rate, not the compressed file bitrate.
+            bitRateKbps = sampleRate * bitDepth * channels / 1000,
+            channels = channels,
+            durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
+            currentPositionMs = c.currentPosition,
+            isPlaying = c.isPlaying,
+            isMemoryPlayLoaded = false
+        )
+    }
+
+    /** Replaces the queue with the picked files and starts playing the first one. */
+    fun openFiles(uris: List<Uri>) {
+        val c = controller ?: return
+        uris.forEach { uri ->
+            runCatching {
+                appContext.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        val items = uris.map { uri ->
+            MediaItem.Builder()
+                .setMediaId(uri.toString())
+                .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
+                .build()
+        }
+        c.setMediaItems(items)
+        c.prepare()
+        c.play()
+    }
 
     fun togglePlayPause() {
-        _trackMetadata.value = _trackMetadata.value.copy(isPlaying = !_trackMetadata.value.isPlaying)
+        val c = controller ?: return
+        if (c.isPlaying) c.pause() else c.play()
     }
 
     fun seekTo(positionMs: Long) {
-        _trackMetadata.value = _trackMetadata.value.copy(currentPositionMs = positionMs.coerceIn(0, _trackMetadata.value.durationMs))
+        controller?.seekTo(positionMs.coerceAtLeast(0))
+    }
+
+    fun skipToNext() {
+        controller?.seekToNextMediaItem()
+    }
+
+    fun skipToPrevious() {
+        controller?.seekToPreviousMediaItem()
     }
 
     fun updateDspRack(transform: (DspRackState) -> DspRackState) {
@@ -116,6 +223,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
 
     companion object {
+        private const val POSITION_TICK_MS = 200L
+
         @Volatile
         private var instance: AudioEngineStateRepository? = null
 

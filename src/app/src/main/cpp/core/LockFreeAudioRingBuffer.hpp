@@ -13,7 +13,7 @@ class LockFreeAudioRingBuffer {
     static constexpr size_t CACHE_LINE_SIZE = 64;
 
 public:
-    LockFreeAudioRingBuffer() : head_(0), tail_(0) {
+    LockFreeAudioRingBuffer() : tail_(0), head_(0) {
         ring_buffer_ = static_cast<T*>(::operator new[](
             sizeof(T) * Capacity, std::align_val_t{alignof(T)}));
     }
@@ -50,6 +50,22 @@ public:
 
         head_.store(head + to_read, std::memory_order_release);
         return to_read;
+    }
+
+    // Producer side: how many elements can be written without overwriting.
+    size_t AvailableToWrite() const noexcept {
+        return Capacity - (tail_.load(std::memory_order_relaxed) - head_.load(std::memory_order_acquire));
+    }
+
+    // Consumer side: how many elements are waiting to be read.
+    size_t AvailableToRead() const noexcept {
+        return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_relaxed);
+    }
+
+    // Only call while neither the producer nor the consumer is running.
+    void Clear() noexcept {
+        head_.store(0, std::memory_order_relaxed);
+        tail_.store(0, std::memory_order_release);
     }
 
 private:

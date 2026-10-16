@@ -19,7 +19,9 @@ FetchContent_MakeAvailable(oboe)
 
 add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
+    core/PlaybackEngine.cpp
     jni/AudioEngineJniBridge.cpp
+    jni/PlaybackEngineJni.cpp
 )
 
 # Warnings and tuning apply to our code only; Oboe builds with its own -Werror set.
@@ -44,6 +46,7 @@ target_include_directories(audiophile_engine PRIVATE
 find_library(log-lib log)
 find_library(android-lib android)
 find_library(vulkan-lib vulkan)
+find_library(mediandk-lib mediandk)
 
 target_link_libraries(audiophile_engine
     PRIVATE
@@ -51,4 +54,5 @@ target_link_libraries(audiophile_engine
     ${log-lib}
     ${android-lib}
     ${vulkan-lib}
+    ${mediandk-lib}
 )

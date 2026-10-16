@@ -1,9 +1,12 @@
 package com.audiophile.engine
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -34,9 +37,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         stateRepository = AudioEngineStateRepository.getInstance(this)
 
+        // Media3 needs this to show the playback notification on Android 13+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                .launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val pickAudio = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNotEmpty()) stateRepository.openFiles(uris)
+        }
+
         setContent {
             AudiophileEngineTheme {
-                MainAppScaffold(stateRepository = stateRepository)
+                MainAppScaffold(
+                    stateRepository = stateRepository,
+                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*")) }
+                )
             }
         }
     }
@@ -50,7 +66,8 @@ enum class NavigationTab(val title: String) {
 
 @Composable
 fun MainAppScaffold(
-    stateRepository: AudioEngineStateRepository
+    stateRepository: AudioEngineStateRepository,
+    onOpenFiles: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(NavigationTab.NOW_PLAYING) }
 
@@ -63,6 +80,17 @@ fun MainAppScaffold(
     val outputMode by stateRepository.outputMode.collectAsState()
 
     Scaffold(
+        floatingActionButton = {
+            if (selectedTab == NavigationTab.NOW_PLAYING) {
+                ExtendedFloatingActionButton(
+                    onClick = onOpenFiles,
+                    containerColor = EmberOrange,
+                    contentColor = TextPrimary
+                ) {
+                    Text(text = "OPEN FILES", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = DarkSurface,
