@@ -21,7 +21,9 @@ void ExynosThreadGovernor::BindCurrentThreadToCluster(int cluster_mask) noexcept
             CPU_SET(i, &cpuset);
         }
     }
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    // Bionic has no pthread_setaffinity_np; sched_setaffinity on the thread id
+    // pins only the calling thread.
+    sched_setaffinity(gettid(), sizeof(cpu_set_t), &cpuset);
 }
 
 bool ExynosThreadGovernor::InitializeADPF(int64_t target_work_duration_ns) noexcept {
