@@ -32,7 +32,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
     // 3. DSP Rack State
     private val _dspRackState = MutableStateFlow(
-        hardwareDatabase.PROFILES.first().defaultDspPreset
+        HardwareProfileDatabase.PROFILES.first().defaultDspPreset
     )
     val dspRackState: StateFlow<DspRackState> = _dspRackState.asStateFlow()
 
@@ -52,14 +52,17 @@ class AudioEngineStateRepository private constructor(context: Context) {
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
 
     // 7. Dynamic Roon-Style Signal Path State
+    // kotlinx combine() has typed overloads for at most five flows, so the
+    // hardware sources are paired first.
+    private val outputHardware = combine(bluetoothTelemetry, connectedUsbDevice) { bt, usb -> bt to usb }
+
     val signalPathState: StateFlow<SignalPathState> = combine(
         _trackMetadata,
         _forensicMetrics,
         _dspRackState,
         _outputMode,
-        bluetoothTelemetry,
-        connectedUsbDevice
-    ) { track, metrics, dsp, mode, bt, usb ->
+        outputHardware
+    ) { track, metrics, dsp, mode, (bt, usb) ->
         SignalPathState.buildPath(
             track = track,
             metrics = metrics,

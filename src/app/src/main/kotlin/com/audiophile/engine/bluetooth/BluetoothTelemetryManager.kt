@@ -13,6 +13,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import androidx.core.content.ContextCompat
 import com.audiophile.engine.model.BluetoothTelemetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,7 +45,7 @@ class BluetoothTelemetryManager(private val context: Context) {
 
     private val codecReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
-            if (intent.action == BluetoothA2dp.ACTION_CODEC_CONFIG_CHANGED) {
+            if (intent.action == ACTION_CODEC_CONFIG_CHANGED) {
                 pollActiveCodecStatus()
             }
         }
@@ -53,16 +54,27 @@ class BluetoothTelemetryManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun initialize() {
         bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
-        val filter = IntentFilter(BluetoothA2dp.ACTION_CODEC_CONFIG_CHANGED)
-        context.registerReceiver(codecReceiver, filter)
+        val filter = IntentFilter(ACTION_CODEC_CONFIG_CHANGED)
+        ContextCompat.registerReceiver(context, codecReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
     }
 
+    /**
+     * Reads the active A2DP codec. getActiveDevice/getCodecStatus are hidden or
+     * system APIs, so they are called reflectively and may be refused on some
+     * builds; in that case telemetry simply stays empty.
+     */
     @SuppressLint("MissingPermission")
     fun pollActiveCodecStatus() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val a2dp = a2dpProfile ?: return
-        val activeDevice: BluetoothDevice = a2dp.activeDevice ?: return
-        val codecStatus: BluetoothCodecStatus = a2dp.getCodecStatus(activeDevice) ?: return
-        val config: BluetoothCodecConfig = codecStatus.codecConfig ?: return
+        val config: BluetoothCodecConfig = try {
+            val activeDevice = a2dp.javaClass.getMethod("getActiveDevice").invoke(a2dp) as? BluetoothDevice ?: return
+            val codecStatus = a2dp.javaClass.getMethod("getCodecStatus", BluetoothDevice::class.java)
+                .invoke(a2dp, activeDevice) as? BluetoothCodecStatus ?: return
+            codecStatus.codecConfig ?: return
+        } catch (_: Exception) {
+            return
+        }
 
         val sampleRate = when (config.sampleRate) {
             BluetoothCodecConfig.SAMPLE_RATE_44100 -> 44100
@@ -93,13 +105,8 @@ class BluetoothTelemetryManager(private val context: Context) {
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val extendedType = config.extendedCodecType
-            if (extendedType?.codecName?.contains("Samsung", ignoreCase = true) == true ||
-                extendedType?.codecId == 0x0075L) {
-                isSamsungSeamless = true
-            }
-        } else if (codecType == 1000000 || codecType == 11) {
+        // Samsung Seamless Codec reports a vendor codec type on One UI.
+        if (codecType == 1000000 || codecType == 11) {
             isSamsungSeamless = true
         }
 
@@ -121,6 +128,11 @@ class BluetoothTelemetryManager(private val context: Context) {
             context.unregisterReceiver(codecReceiver)
         } catch (_: Exception) {}
         bluetoothAdapter?.closeProfileProxy(BluetoothProfile.A2DP, a2dpProfile)
+    }
+
+    companion object {
+        private const val ACTION_CODEC_CONFIG_CHANGED =
+            "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED"
     }
 
     private external fun nativePushCodecTelemetry(
