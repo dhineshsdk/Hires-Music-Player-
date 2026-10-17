@@ -1,0 +1,50 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  assemble-debug:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon --continue assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: src/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # Keep one rolling pre-release with the newest APK, so it can be installed from a phone link.
+      - name: Publish APK to the latest-debug pre-release
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp src/app/build/outputs/apk/debug/app-debug.apk hires-player-debug.apk
+          gh release view latest-debug >/dev/null 2>&1 || \
+            gh release create latest-debug --prerelease --title "Latest debug build" \
+              --notes "Debug APK from the newest CI build." --target "$GITHUB_SHA"
+          gh release upload latest-debug hires-player-debug.apk --clobber
+          gh release edit latest-debug --notes "Debug APK built from ${GITHUB_SHA::7} (${{ github.head_ref || github.ref_name }})."

@@ -62,8 +62,8 @@ fun KnurledKnob(
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val center = Offset(size.width.toPx() / 2f, size.height.toPx() / 2f)
-                val outerRadius = (size.width.toPx() / 2f) - 4.dp.toPx()
+                val center = Offset(this.size.width / 2f, this.size.height / 2f)
+                val outerRadius = (this.size.width / 2f) - 4.dp.toPx()
                 val knobRadius = outerRadius - 6.dp.toPx()
 
                 // 1. Background Arc (Unfilled Path)

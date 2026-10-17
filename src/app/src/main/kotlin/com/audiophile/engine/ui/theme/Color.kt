@@ -32,3 +32,9 @@ val TextOrange = Color(0xFFFF6D00)
 // Tube Warmth
 val TubeFilamentOrange = Color(0xFFFF5722)
 val TubeHaloGlow = Color(0x33FF6D00)
+
+// Hardware status and brushed-metal tones
+val MatrixGreen = Color(0xFF00E676)
+val AmberGlow = Color(0xFFFFB300)
+val BrushedAluminum = Color(0xFF9EA2AD)
+val BrushedAluminumDark = Color(0xFF4A4D57)

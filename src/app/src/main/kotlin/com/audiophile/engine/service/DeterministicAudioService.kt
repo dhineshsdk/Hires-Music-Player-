@@ -1,100 +1,80 @@
 package com.audiophile.engine.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.Context
+import android.app.PendingIntent
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.net.Uri
-import android.os.Build
-import android.os.IBinder
-import android.os.PowerManager
-import android.os.Process
-import android.provider.Settings
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import com.audiophile.engine.MainActivity
+import com.audiophile.engine.playback.NativeEnginePlayer
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
-class DeterministicAudioService : Service() {
+/**
+ * Playback service. Media3 runs the foreground notification, lock screen and
+ * headset/Bluetooth buttons; audio is produced by the native engine through
+ * [NativeEnginePlayer].
+ */
+@UnstableApi
+class DeterministicAudioService : MediaSessionService() {
 
-    private var wakeLock: PowerManager.WakeLock? = null
-
-    companion object {
-        init {
-            System.loadLibrary("audiophile_engine")
-        }
-    }
-
-    private external fun nativeInitCore(): Boolean
+    private var session: MediaSession? = null
 
     override fun onCreate() {
         super.onCreate()
-        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "AudiophileEngine::RealtimeAudioLock"
-        ).apply {
-            acquire(24 * 60 * 60 * 1000L)
-        }
-
-        startForegroundServiceNotification()
-        ensureSamsungOneUiExemption()
-        nativeInitCore()
-    }
-
-    private fun startForegroundServiceNotification() {
-        val channelId = "audiophile_bitperfect_channel"
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            channelId,
-            "Bit-Perfect Playback Core",
-            NotificationManager.IMPORTANCE_LOW
+        val player = NativeEnginePlayer(this)
+        PlaybackHolder.player = player
+        val openApp = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        manager.createNotificationChannel(channel)
-
-        val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Bit-Perfect Audio Engine Active")
-            .setContentText("Direct hardware output active with 64-bit studio DSP")
-            .setOngoing(true)
+        session = MediaSession.Builder(this, player)
+            .setSessionActivity(openApp)
+            .setCallback(UriRestoringCallback)
             .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                1001,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(1001, notification)
-        }
     }
 
-    private fun ensureSamsungOneUiExemption() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:$packageName")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(intent)
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = session?.player
+        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+            stopSelf()
         }
-
-        try {
-            val samsungIntent = Intent().apply {
-                action = "com.samsung.android.sm.ACTION_OPEN_CHECKABLE_LISTACTIVITY"
-                setPackage("com.samsung.android.lool")
-                putExtra("activity_type", 2)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(samsungIntent)
-        } catch (_: Exception) {}
     }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        wakeLock?.let { if (it.isHeld) it.release() }
+        session?.run {
+            player.release()
+            release()
+        }
+        session = null
+        PlaybackHolder.player = null
         super.onDestroy()
     }
+
+    /**
+     * Controllers cannot pass a playable URI directly (Media3 strips it), so the app
+     * sends it as requestMetadata.mediaUri and it is restored here.
+     */
+    private object UriRestoringCallback : MediaSession.Callback {
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>
+        ): ListenableFuture<MutableList<MediaItem>> = Futures.immediateFuture(
+            mediaItems.map { item ->
+                val uri = item.requestMetadata.mediaUri
+                if (uri != null) item.buildUpon().setUri(uri).build() else item
+            }.toMutableList()
+        )
+    }
+}
+
+/** Lets in-process UI read engine-only details (source and device sample rates). */
+@UnstableApi
+object PlaybackHolder {
+    @Volatile var player: NativeEnginePlayer? = null
 }
