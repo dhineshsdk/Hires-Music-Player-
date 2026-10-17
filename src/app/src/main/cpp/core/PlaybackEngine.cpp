@@ -21,82 +21,115 @@ constexpr int32_t kEncodingPcm32 = 22;
 constexpr int64_t kCodecTimeoutUs = 10000;
 } // namespace
 
+// ---------------------------------------------------------------------------
+// MediaSource
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
+    auto source = std::make_unique<MediaSource>();
+    source->fd = fd;
+
+    struct stat st{};
+    if (fstat(fd, &st) != 0) {
+        LOGE("fstat failed");
+        return nullptr;
+    }
+    source->extractor = AMediaExtractor_new();
+    if (AMediaExtractor_setDataSourceFd(source->extractor, fd, 0, st.st_size) != AMEDIA_OK) {
+        LOGE("setDataSourceFd failed");
+        return nullptr;
+    }
+
+    const size_t trackCount = AMediaExtractor_getTrackCount(source->extractor);
+    for (size_t i = 0; i < trackCount && source->codec == nullptr; ++i) {
+        AMediaFormat* format = AMediaExtractor_getTrackFormat(source->extractor, i);
+        const char* mime = nullptr;
+        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime &&
+            std::strncmp(mime, "audio/", 6) == 0) {
+            AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &source->sampleRate);
+            AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &source->channels);
+            AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &source->durationUs);
+            if (!AMediaFormat_getInt32(format, "bits-per-sample", &source->bitDepth)) {
+                int32_t encoding = kEncodingPcm16;
+                AMediaFormat_getInt32(format, "pcm-encoding", &encoding);
+                source->bitDepth = encoding == kEncodingPcm24Packed ? 24
+                                 : (encoding == kEncodingPcm32 || encoding == kEncodingPcmFloat) ? 32 : 16;
+            }
+
+            AMediaExtractor_selectTrack(source->extractor, i);
+            // Ask for float output so 24-bit sources reach the ring without truncation;
+            // fall back to the decoder's native 16-bit output if it refuses.
+            for (const int32_t encoding : {kEncodingPcmFloat, kEncodingPcm16}) {
+                source->codec = AMediaCodec_createDecoderByType(mime);
+                if (!source->codec) break;
+                AMediaFormat_setInt32(format, "pcm-encoding", encoding);
+                if (AMediaCodec_configure(source->codec, format, nullptr, nullptr, 0) == AMEDIA_OK &&
+                    AMediaCodec_start(source->codec) == AMEDIA_OK) {
+                    break;
+                }
+                AMediaCodec_delete(source->codec);
+                source->codec = nullptr;
+            }
+            LOGI("Opened %s: %d Hz, %d ch, %d bit, %lld ms", mime, source->sampleRate, source->channels,
+                 source->bitDepth, static_cast<long long>(source->durationUs / 1000));
+        }
+        AMediaFormat_delete(format);
+    }
+
+    if (source->codec == nullptr || source->sampleRate <= 0) {
+        LOGE("No decodable audio track");
+        return nullptr;
+    }
+    source->decodedChannels = source->channels;
+    return source;
+}
+
+void MediaSource::Rewind() {
+    AMediaExtractor_seekTo(extractor, 0, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
+    AMediaCodec_flush(codec);
+    inputDone = false;
+}
+
+MediaSource::~MediaSource() {
+    if (codec) {
+        AMediaCodec_stop(codec);
+        AMediaCodec_delete(codec);
+    }
+    if (extractor) AMediaExtractor_delete(extractor);
+    if (fd >= 0) close(fd);
+}
+
+// ---------------------------------------------------------------------------
+// PlaybackEngine: control thread
+// ---------------------------------------------------------------------------
+
 PlaybackEngine::~PlaybackEngine() {
     Release();
 }
 
 bool PlaybackEngine::Open(int fd) {
     Release();
-    fd_ = fd;
-
-    struct stat st{};
-    if (fstat(fd_, &st) != 0) {
-        LOGE("fstat failed");
-        CloseMedia();
+    current_ = MediaSource::Open(fd);
+    if (!current_) {
+        state_.store(State::Error, std::memory_order_release);
         return false;
     }
 
-    extractor_ = AMediaExtractor_new();
-    if (AMediaExtractor_setDataSourceFd(extractor_, fd_, 0, st.st_size) != AMEDIA_OK) {
-        LOGE("setDataSourceFd failed");
-        CloseMedia();
-        return false;
-    }
-
-    const size_t trackCount = AMediaExtractor_getTrackCount(extractor_);
-    for (size_t i = 0; i < trackCount && codec_ == nullptr; ++i) {
-        AMediaFormat* format = AMediaExtractor_getTrackFormat(extractor_, i);
-        const char* mime = nullptr;
-        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime &&
-            std::strncmp(mime, "audio/", 6) == 0) {
-            AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sampleRate_);
-            AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &sourceChannels_);
-            AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &durationUs_);
-            if (!AMediaFormat_getInt32(format, "bits-per-sample", &bitDepth_)) {
-                int32_t encoding = kEncodingPcm16;
-                AMediaFormat_getInt32(format, "pcm-encoding", &encoding);
-                bitDepth_ = encoding == kEncodingPcm24Packed ? 24
-                          : (encoding == kEncodingPcm32 || encoding == kEncodingPcmFloat) ? 32 : 16;
-            }
-
-            AMediaExtractor_selectTrack(extractor_, i);
-            // Ask for float output so 24-bit sources reach the ring without truncation;
-            // fall back to the decoder's native 16-bit output if it refuses.
-            for (const int32_t encoding : {kEncodingPcmFloat, kEncodingPcm16}) {
-                codec_ = AMediaCodec_createDecoderByType(mime);
-                if (!codec_) break;
-                AMediaFormat_setInt32(format, "pcm-encoding", encoding);
-                if (AMediaCodec_configure(codec_, format, nullptr, nullptr, 0) == AMEDIA_OK &&
-                    AMediaCodec_start(codec_) == AMEDIA_OK) {
-                    break;
-                }
-                AMediaCodec_delete(codec_);
-                codec_ = nullptr;
-            }
-            LOGI("Opened %s: %d Hz, %d ch, %d bit, %lld ms", mime, sampleRate_, sourceChannels_,
-                 bitDepth_, static_cast<long long>(durationUs_ / 1000));
-        }
-        AMediaFormat_delete(format);
-    }
-
-    if (codec_ == nullptr || sampleRate_ <= 0) {
-        LOGE("No decodable audio track");
-        CloseMedia();
-        return false;
-    }
-
+    SetPlayingInfo(*current_);
     ring_ = std::make_unique<Ring>();
-    decodedChannels_ = sourceChannels_;
-    pcmEncoding_ = kEncodingPcm16;
+    framesWritten_ = 0;
     framesPlayed_.store(0);
+    playingStartFrame_.store(0);
+    boundaryFrame_.store(-1);
     seekBaseMs_.store(0);
+    transitions_.store(0);
     StartDecoder();
 
     {
         std::lock_guard<std::mutex> lock(streamMutex_);
         if (!OpenStreamLocked()) {
             StopDecoder();
-            CloseMedia();
+            current_.reset();
             state_.store(State::Error, std::memory_order_release);
             return false;
         }
@@ -105,12 +138,31 @@ bool PlaybackEngine::Open(int fd) {
     return true;
 }
 
+bool PlaybackEngine::SetNext(int fd) {
+    std::unique_ptr<MediaSource> source = MediaSource::Open(fd);
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    next_ = std::move(source);
+    return next_ != nullptr;
+}
+
+void PlaybackEngine::ClearNext() {
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    next_.reset();
+}
+
+void PlaybackEngine::SetPlayingInfo(const MediaSource& source) {
+    playingRate_.store(source.sampleRate, std::memory_order_relaxed);
+    playingChannels_.store(source.channels, std::memory_order_relaxed);
+    playingBits_.store(source.bitDepth, std::memory_order_relaxed);
+    playingDurationMs_.store(source.durationUs / 1000, std::memory_order_relaxed);
+}
+
 bool PlaybackEngine::OpenStreamLocked() {
     oboe::AudioStreamBuilder builder;
     builder.setDirection(oboe::Direction::Output)
         ->setFormat(oboe::AudioFormat::Float)
         ->setChannelCount(kOutputChannels)
-        ->setSampleRate(sampleRate_)
+        ->setSampleRate(GetSampleRate())
         ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best)
         ->setUsage(oboe::Usage::Media)
         ->setContentType(oboe::ContentType::Music)
@@ -161,7 +213,7 @@ void PlaybackEngine::Pause() {
 }
 
 void PlaybackEngine::SeekTo(int64_t positionMs) {
-    if (codec_ == nullptr) return;
+    if (!current_ && !retired_) return;
     const bool wasPlaying = GetState() == State::Playing;
 
     {
@@ -171,18 +223,33 @@ void PlaybackEngine::SeekTo(int64_t positionMs) {
     }
     StopDecoder();
 
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        if (boundaryFrame_.load() >= 0 && retired_) {
+            // The decoder had already moved on to the queued track, but the listener has
+            // not reached it yet. Put the queued track back and seek the one being heard.
+            current_->Rewind();
+            next_ = std::move(current_);
+            current_ = std::move(retired_);
+        }
+        retired_.reset();
+    }
+    boundaryFrame_.store(-1);
+
     positionMs = std::max<int64_t>(positionMs, 0);
     if (GetDurationMs() > 0) positionMs = std::min(positionMs, GetDurationMs());
-    AMediaExtractor_seekTo(extractor_, positionMs * 1000, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
-    AMediaCodec_flush(codec_);
+    AMediaExtractor_seekTo(current_->extractor, positionMs * 1000, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
+    AMediaCodec_flush(current_->codec);
+    current_->inputDone = false;
     // FLAC and PCM seek to the exact frame; compressed formats land on the nearest sync sample.
-    int64_t landedUs = AMediaExtractor_getSampleTime(extractor_);
+    int64_t landedUs = AMediaExtractor_getSampleTime(current_->extractor);
     if (landedUs < 0) landedUs = positionMs * 1000;
 
     ring_->Clear();
+    framesWritten_ = 0;
     framesPlayed_.store(0);
+    playingStartFrame_.store(0);
     seekBaseMs_.store(landedUs / 1000);
-    inputDone_ = false;
     StartDecoder();
 
     state_.store(wasPlaying ? State::Playing : State::Ready, std::memory_order_release);
@@ -199,17 +266,37 @@ void PlaybackEngine::Release() {
         CloseStreamLocked();
     }
     StopDecoder();
-    CloseMedia();
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        next_.reset();
+        retired_.reset();
+    }
+    current_.reset();
     ring_.reset();
+    boundaryFrame_.store(-1);
+    SetPlayingInfo(MediaSource{});
     state_.store(State::Idle, std::memory_order_release);
 }
 
+int32_t PlaybackEngine::PollTransitions() {
+    if (boundaryFrame_.load(std::memory_order_acquire) < 0) {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        retired_.reset();
+    }
+    return transitions_.load(std::memory_order_acquire);
+}
+
 int64_t PlaybackEngine::GetPositionMs() const noexcept {
-    const int32_t rate = sampleRate_ > 0 ? sampleRate_ : 1;
-    const int64_t played = framesPlayed_.load(std::memory_order_relaxed) * 1000 / rate;
-    const int64_t position = seekBaseMs_.load(std::memory_order_relaxed) + played;
+    const int32_t rate = std::max(GetSampleRate(), 1);
+    const int64_t frames = std::max<int64_t>(framesPlayed_.load(std::memory_order_relaxed) -
+                                             playingStartFrame_.load(std::memory_order_relaxed), 0);
+    const int64_t position = seekBaseMs_.load(std::memory_order_relaxed) + frames * 1000 / rate;
     return GetDurationMs() > 0 ? std::min(position, GetDurationMs()) : position;
 }
+
+// ---------------------------------------------------------------------------
+// Decoder thread
+// ---------------------------------------------------------------------------
 
 void PlaybackEngine::StartDecoder() {
     decoderDone_.store(false);
@@ -225,63 +312,67 @@ void PlaybackEngine::StopDecoder() {
     }
 }
 
-void PlaybackEngine::CloseMedia() {
-    if (codec_) {
-        AMediaCodec_stop(codec_);
-        AMediaCodec_delete(codec_);
-        codec_ = nullptr;
-    }
-    if (extractor_) {
-        AMediaExtractor_delete(extractor_);
-        extractor_ = nullptr;
-    }
-    if (fd_ >= 0) {
-        close(fd_);
-        fd_ = -1;
-    }
-    inputDone_ = false;
-    sampleRate_ = 0;
-    sourceChannels_ = 0;
-    bitDepth_ = 0;
-    durationUs_ = 0;
-}
-
 void PlaybackEngine::DecoderLoop() {
     while (decoderRunning_.load()) {
-        if (!DecodeStep()) {
+        if (!DecodeStep() && !SwapToNext()) {
             decoderDone_.store(true);
             return;
         }
     }
 }
 
+// At the end of the current track, continue straight into the queued one if the
+// output stream can carry it unchanged (same sample rate).
+bool PlaybackEngine::SwapToNext() {
+    // Only one boundary can be pending; wait for the listener to cross the previous one.
+    while (decoderRunning_.load() && boundaryFrame_.load(std::memory_order_acquire) >= 0) {
+        std::unique_lock<std::mutex> lock(decoderMutex_);
+        decoderCv_.wait_for(lock, std::chrono::milliseconds(5));
+    }
+    if (!decoderRunning_.load()) return true;  // stopping; loop exits on its own
+
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    if (!next_ || next_->sampleRate != current_->sampleRate) {
+        return false;
+    }
+    pendingChannels_.store(next_->channels, std::memory_order_relaxed);
+    pendingBits_.store(next_->bitDepth, std::memory_order_relaxed);
+    pendingDurationMs_.store(next_->durationUs / 1000, std::memory_order_relaxed);
+    retired_ = std::move(current_);
+    current_ = std::move(next_);
+    boundaryFrame_.store(framesWritten_, std::memory_order_release);
+    LOGI("Gapless: next track queued at frame %lld", static_cast<long long>(framesWritten_));
+    return true;
+}
+
 // Feeds one input buffer and drains one output buffer. Returns false at end of stream or error.
 bool PlaybackEngine::DecodeStep() {
-    if (!inputDone_) {
-        const ssize_t inIndex = AMediaCodec_dequeueInputBuffer(codec_, kCodecTimeoutUs);
+    MediaSource& src = *current_;
+    if (!src.inputDone) {
+        const ssize_t inIndex = AMediaCodec_dequeueInputBuffer(src.codec, kCodecTimeoutUs);
         if (inIndex >= 0) {
             size_t capacity = 0;
-            uint8_t* buffer = AMediaCodec_getInputBuffer(codec_, inIndex, &capacity);
-            const ssize_t size = AMediaExtractor_readSampleData(extractor_, buffer, capacity);
+            uint8_t* buffer = AMediaCodec_getInputBuffer(src.codec, inIndex, &capacity);
+            const ssize_t size = AMediaExtractor_readSampleData(src.extractor, buffer, capacity);
             if (size < 0) {
-                AMediaCodec_queueInputBuffer(codec_, inIndex, 0, 0, 0,
+                AMediaCodec_queueInputBuffer(src.codec, inIndex, 0, 0, 0,
                                              AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
-                inputDone_ = true;
+                src.inputDone = true;
             } else {
-                const int64_t pts = AMediaExtractor_getSampleTime(extractor_);
-                AMediaCodec_queueInputBuffer(codec_, inIndex, 0, size, pts, 0);
-                AMediaExtractor_advance(extractor_);
+                const int64_t pts = AMediaExtractor_getSampleTime(src.extractor);
+                AMediaCodec_queueInputBuffer(src.codec, inIndex, 0, size, pts, 0);
+                AMediaExtractor_advance(src.extractor);
             }
         }
     }
 
     AMediaCodecBufferInfo info{};
-    const ssize_t outIndex = AMediaCodec_dequeueOutputBuffer(codec_, &info, kCodecTimeoutUs);
+    const ssize_t outIndex = AMediaCodec_dequeueOutputBuffer(src.codec, &info, kCodecTimeoutUs);
     if (outIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-        AMediaFormat* format = AMediaCodec_getOutputFormat(codec_);
-        AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &decodedChannels_);
-        if (!AMediaFormat_getInt32(format, "pcm-encoding", &pcmEncoding_)) {
-            pcmEncoding_ = kEncodingPcm16;
+        AMediaFormat* format = AMediaCodec_getOutputFormat(src.codec);
+        AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &src.decodedChannels);
+        if (!AMediaFormat_getInt32(format, "pcm-encoding", &src.pcmEncoding)) {
+            src.pcmEncoding = kEncodingPcm16;
         }
         AMediaFormat_delete(format);
         return true;
@@ -291,12 +382,12 @@ bool PlaybackEngine::DecodeStep() {
     }
 
     size_t outSize = 0;
-    const uint8_t* data = AMediaCodec_getOutputBuffer(codec_, outIndex, &outSize);
-    if (data && info.size > 0 && decodedChannels_ > 0) {
+    const uint8_t* data = AMediaCodec_getOutputBuffer(src.codec, outIndex, &outSize);
+    if (data && info.size > 0 && src.decodedChannels > 0) {
         const uint8_t* pcm = data + info.offset;
-        const int32_t bytesPerSample = pcmEncoding_ == kEncodingPcm16 ? 2
-                                     : pcmEncoding_ == kEncodingPcm24Packed ? 3 : 4;
-        const size_t frames = static_cast<size_t>(info.size) / (bytesPerSample * decodedChannels_);
+        const int32_t bytesPerSample = src.pcmEncoding == kEncodingPcm16 ? 2
+                                     : src.pcmEncoding == kEncodingPcm24Packed ? 3 : 4;
+        const size_t frames = static_cast<size_t>(info.size) / (bytesPerSample * src.decodedChannels);
         const size_t needed = frames * kOutputChannels;
         if (scratchFloats_ < needed) {
             scratch_ = std::make_unique<float[]>(needed);
@@ -306,10 +397,10 @@ bool PlaybackEngine::DecodeStep() {
         for (size_t f = 0; f < frames; ++f) {
             for (int32_t c = 0; c < kOutputChannels; ++c) {
                 // Mono is duplicated to both sides; extra channels beyond stereo are dropped.
-                const int32_t src = std::min(c, decodedChannels_ - 1);
-                const uint8_t* p = pcm + (f * decodedChannels_ + src) * bytesPerSample;
+                const int32_t ch = std::min(c, src.decodedChannels - 1);
+                const uint8_t* p = pcm + (f * src.decodedChannels + ch) * bytesPerSample;
                 float v;
-                switch (pcmEncoding_) {
+                switch (src.pcmEncoding) {
                     case kEncodingPcmFloat: std::memcpy(&v, p, 4); break;
                     case kEncodingPcm24Packed: {
                         const int32_t s = static_cast<int32_t>(
@@ -338,7 +429,7 @@ bool PlaybackEngine::DecodeStep() {
     }
 
     const bool eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
-    AMediaCodec_releaseOutputBuffer(codec_, outIndex, false);
+    AMediaCodec_releaseOutputBuffer(src.codec, outIndex, false);
     return !eos;
 }
 
@@ -348,6 +439,7 @@ void PlaybackEngine::WriteToRing(const float* interleaved, size_t frames) {
         const size_t written = ring_->Write({interleaved, remaining});
         interleaved += written;
         remaining -= written;
+        framesWritten_ += static_cast<int64_t>(written / kOutputChannels);
         if (remaining > 0) {
             // Ring is full: the device is draining it. Wait without spinning.
             std::unique_lock<std::mutex> lock(decoderMutex_);
@@ -355,6 +447,10 @@ void PlaybackEngine::WriteToRing(const float* interleaved, size_t frames) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Real-time callback
+// ---------------------------------------------------------------------------
 
 oboe::DataCallbackResult PlaybackEngine::onAudioReady(oboe::AudioStream* /*stream*/, void* audioData,
                                                       int32_t numFrames) {
@@ -367,7 +463,22 @@ oboe::DataCallbackResult PlaybackEngine::onAudioReady(oboe::AudioStream* /*strea
             state_.store(State::Ended, std::memory_order_release);
         }
     }
-    framesPlayed_.fetch_add(static_cast<int64_t>(got / kOutputChannels), std::memory_order_relaxed);
+
+    const int64_t played = framesPlayed_.load(std::memory_order_relaxed) +
+                           static_cast<int64_t>(got / kOutputChannels);
+    framesPlayed_.store(played, std::memory_order_relaxed);
+
+    const int64_t boundary = boundaryFrame_.load(std::memory_order_acquire);
+    if (boundary >= 0 && played >= boundary) {
+        // The listener just entered the queued track.
+        playingChannels_.store(pendingChannels_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        playingBits_.store(pendingBits_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        playingDurationMs_.store(pendingDurationMs_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        playingStartFrame_.store(boundary, std::memory_order_relaxed);
+        seekBaseMs_.store(0, std::memory_order_relaxed);
+        boundaryFrame_.store(-1, std::memory_order_release);
+        transitions_.fetch_add(1, std::memory_order_release);
+    }
     return oboe::DataCallbackResult::Continue;
 }
 
@@ -376,7 +487,7 @@ void PlaybackEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/, oboe::Resu
     LOGI("Stream closed: %s, reopening", oboe::convertToText(error));
     std::lock_guard<std::mutex> lock(streamMutex_);
     stream_.reset();
-    if (GetState() == State::Idle || codec_ == nullptr) return;
+    if (GetState() == State::Idle || GetSampleRate() == 0) return;
     if (OpenStreamLocked() && playWhenReady_.load()) {
         stream_->requestStart();
     }

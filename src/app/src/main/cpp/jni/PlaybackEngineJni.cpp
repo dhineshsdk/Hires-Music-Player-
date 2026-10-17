@@ -26,6 +26,21 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeOpen(JNIEnv*, jclass
     return FromHandle(handle)->Open(fd) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetNext(JNIEnv*, jclass, jlong handle, jint fd) {
+    return FromHandle(handle)->SetNext(fd) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeClearNext(JNIEnv*, jclass, jlong handle) {
+    FromHandle(handle)->ClearNext();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativePollTransitions(JNIEnv*, jclass, jlong handle) {
+    return FromHandle(handle)->PollTransitions();
+}
+
 JNIEXPORT void JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativePlay(JNIEnv*, jclass, jlong handle) {
     FromHandle(handle)->Play();

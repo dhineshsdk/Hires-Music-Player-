@@ -49,6 +49,9 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private var preparedIndex = -1
     private var durationMs = 0L
     private var pausedByTransientFocusLoss = false
+    private var seenTransitions = 0
+    // Bumped whenever the open track changes, so a stale background open is dropped.
+    private var openGeneration = 0
 
     private val _engineFormat = MutableStateFlow<NativeAudioEngine.Format?>(null)
     /** Format of the open track as the engine sees it (source and device rates). */
@@ -73,6 +76,10 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
 
     private val ticker = object : Runnable {
         override fun run() {
+            if (preparedIndex >= 0) {
+                val transitions = engine.pollTransitions()
+                if (transitions > seenTransitions) onGaplessTransition(transitions)
+            }
             if (engine.state == NativeAudioEngine.State.ENDED && playbackState == Player.STATE_READY) {
                 onTrackEnded()
             }
@@ -208,6 +215,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         val item = playlist.getOrNull(currentIndex) ?: return Futures.immediateVoidFuture()
         val uri = item.localConfiguration?.uri ?: return Futures.immediateVoidFuture()
         val index = currentIndex
+        val generation = ++openGeneration
         playbackState = Player.STATE_BUFFERING
         val future = com.google.common.util.concurrent.SettableFuture.create<Unit>()
         ioExecutor.execute {
@@ -218,7 +226,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                 null
             }
             mainHandler.post {
-                if (index != currentIndex) {
+                if (index != currentIndex || generation != openGeneration) {
                     // The user moved on while this file was opening.
                     fd?.let { android.os.ParcelFileDescriptor.adoptFd(it).close() }
                     future.set(Unit)
@@ -227,11 +235,13 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                 val opened = fd != null && engine.open(fd)
                 if (opened) {
                     preparedIndex = index
+                    seenTransitions = 0
                     durationMs = engine.durationMs
                     _engineFormat.value = engine.format
                     if (startPositionMs > 0) engine.seekTo(startPositionMs)
                     playbackState = Player.STATE_READY
                     if (playWhenReady) engine.play()
+                    preloadNext()
                 } else {
                     Log.e(TAG, "Engine could not open $uri")
                     preparedIndex = -1
@@ -242,6 +252,46 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             }
         }
         return future
+    }
+
+    /** Opens the following item in the background and hands it to the engine for a gapless change. */
+    private fun preloadNext() {
+        val nextIndex = currentIndex + 1
+        val uri = playlist.getOrNull(nextIndex)?.localConfiguration?.uri
+        if (uri == null) {
+            engine.clearNext()
+            return
+        }
+        val generation = openGeneration
+        ioExecutor.execute {
+            val fd = try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot preload $uri", e)
+                null
+            }
+            mainHandler.post {
+                if (fd == null) return@post
+                if (generation != openGeneration || nextIndex != currentIndex + 1) {
+                    android.os.ParcelFileDescriptor.adoptFd(fd).close()
+                    return@post
+                }
+                // A different sample rate is not queued by the engine; that track opens normally at the end.
+                if (!engine.setNext(fd)) Log.w(TAG, "Engine could not preload $uri")
+            }
+        }
+    }
+
+    /** The engine moved into the queued track without a gap. */
+    private fun onGaplessTransition(transitions: Int) {
+        seenTransitions = transitions
+        currentIndex += 1
+        preparedIndex = currentIndex
+        openGeneration++
+        durationMs = engine.durationMs
+        _engineFormat.value = engine.format
+        preloadNext()
+        invalidateState()
     }
 
     private fun onTrackEnded() {

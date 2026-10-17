@@ -19,6 +19,11 @@ class NativeAudioEngine {
 
     /** Opens a file descriptor; the engine takes ownership and closes it. */
     fun open(fd: Int): Boolean = nativeOpen(handle, fd)
+    /** Queues a file to play gaplessly after the current one; the engine takes ownership of fd. */
+    fun setNext(fd: Int): Boolean = nativeSetNext(handle, fd)
+    fun clearNext() = nativeClearNext(handle)
+    /** Count of gapless track changes since the last open(). */
+    fun pollTransitions(): Int = nativePollTransitions(handle)
     fun play() = nativePlay(handle)
     fun pause() = nativePause(handle)
     fun seekTo(positionMs: Long) = nativeSeekTo(handle, positionMs)
@@ -45,6 +50,9 @@ class NativeAudioEngine {
         @JvmStatic external fun nativeCreate(): Long
         @JvmStatic external fun nativeDestroy(handle: Long)
         @JvmStatic external fun nativeOpen(handle: Long, fd: Int): Boolean
+        @JvmStatic external fun nativeSetNext(handle: Long, fd: Int): Boolean
+        @JvmStatic external fun nativeClearNext(handle: Long)
+        @JvmStatic external fun nativePollTransitions(handle: Long): Int
         @JvmStatic external fun nativePlay(handle: Long)
         @JvmStatic external fun nativePause(handle: Long)
         @JvmStatic external fun nativeSeekTo(handle: Long, positionMs: Long)
