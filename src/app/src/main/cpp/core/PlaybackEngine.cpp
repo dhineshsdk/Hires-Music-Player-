@@ -1,4 +1,5 @@
 #include "PlaybackEngine.hpp"
+#include "PcmFormatProbe.hpp"
 #include <android/log.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -448,6 +449,7 @@ bool PlaybackEngine::DecodeStep() {
         if (!src.rawPassthrough && AMediaFormat_getInt32(format, "pcm-encoding", &encoding)) {
             src.pcmEncoding = encoding;
         }
+        src.encodingVerified = false;
         LOGI("Decoder output: %d ch, encoding %d", src.decodedChannels, src.pcmEncoding);
         AMediaFormat_delete(format);
         return true;
@@ -460,6 +462,20 @@ bool PlaybackEngine::DecodeStep() {
     const uint8_t* data = AMediaCodec_getOutputBuffer(src.codec, outIndex, &outSize);
     if (data && info.size > 0 && src.decodedChannels > 0) {
         const uint8_t* pcm = data + info.offset;
+        if (!src.encodingVerified &&
+            (src.pcmEncoding == kEncodingPcmFloat || src.pcmEncoding == kEncodingPcm16)) {
+            // The format key can claim float while the decoder still sends 16-bit (or the
+            // reverse); misreading either way is loud noise. Check the samples themselves.
+            const int verdict = LooksLikeFloatPcm(pcm, static_cast<size_t>(info.size));
+            if (verdict != 0) {
+                const int32_t actual = verdict > 0 ? kEncodingPcmFloat : kEncodingPcm16;
+                if (actual != src.pcmEncoding) {
+                    LOGI("Decoder said encoding %d but sends %d; using %d", src.pcmEncoding, actual, actual);
+                    src.pcmEncoding = actual;
+                }
+                src.encodingVerified = true;
+            }
+        }
         const int32_t bytesPerSample = src.pcmEncoding == kEncodingPcm16 ? 2
                                      : src.pcmEncoding == kEncodingPcm24Packed ? 3 : 4;
         const size_t frames = static_cast<size_t>(info.size) / (bytesPerSample * src.decodedChannels);
