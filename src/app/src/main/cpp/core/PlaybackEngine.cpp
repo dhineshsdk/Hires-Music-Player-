@@ -66,29 +66,57 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
             AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &source->sampleRate);
             AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &source->channels);
             AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &source->durationUs);
+            int32_t trackEncoding = kEncodingPcm16;
+            AMediaFormat_getInt32(format, "pcm-encoding", &trackEncoding);
             if (!AMediaFormat_getInt32(format, "bits-per-sample", &source->bitDepth)) {
-                int32_t encoding = kEncodingPcm16;
-                AMediaFormat_getInt32(format, "pcm-encoding", &encoding);
-                source->bitDepth = encoding == kEncodingPcm24Packed ? 24
-                                 : (encoding == kEncodingPcm32 || encoding == kEncodingPcmFloat) ? 32 : 16;
+                source->bitDepth = trackEncoding == kEncodingPcm24Packed ? 24
+                                 : (trackEncoding == kEncodingPcm32 || trackEncoding == kEncodingPcmFloat) ? 32 : 16;
             }
 
             AMediaExtractor_selectTrack(source->extractor, i);
-            // Ask for float output so 24-bit sources reach the ring without truncation;
-            // fall back to the decoder's native 16-bit output if it refuses.
-            for (const int32_t encoding : {kEncodingPcmFloat, kEncodingPcm16}) {
+            // Android's FLAC and WAV extractors already hand out PCM ("audio/raw") in the
+            // track's own encoding; the raw decoder passes it through unchanged, so asking it
+            // for float would only make us misread the bytes.
+            source->rawPassthrough = std::strcmp(mime, "audio/raw") == 0;
+            if (source->rawPassthrough) {
                 source->codec = AMediaCodec_createDecoderByType(mime);
-                if (!source->codec) break;
-                AMediaFormat_setInt32(format, "pcm-encoding", encoding);
-                if (AMediaCodec_configure(source->codec, format, nullptr, nullptr, 0) == AMEDIA_OK &&
-                    AMediaCodec_start(source->codec) == AMEDIA_OK) {
-                    break;
+                if (source->codec &&
+                    (AMediaCodec_configure(source->codec, format, nullptr, nullptr, 0) != AMEDIA_OK ||
+                     AMediaCodec_start(source->codec) != AMEDIA_OK)) {
+                    AMediaCodec_delete(source->codec);
+                    source->codec = nullptr;
                 }
-                AMediaCodec_delete(source->codec);
-                source->codec = nullptr;
+                source->pcmEncoding = trackEncoding;
+            } else {
+                // Ask for float output so 24-bit sources reach the ring without truncation;
+                // fall back to the decoder's native 16-bit output if it refuses.
+                for (const int32_t encoding : {kEncodingPcmFloat, kEncodingPcm16}) {
+                    source->codec = AMediaCodec_createDecoderByType(mime);
+                    if (!source->codec) break;
+                    AMediaFormat_setInt32(format, "pcm-encoding", encoding);
+                    if (AMediaCodec_configure(source->codec, format, nullptr, nullptr, 0) == AMEDIA_OK &&
+                        AMediaCodec_start(source->codec) == AMEDIA_OK) {
+                        source->pcmEncoding = encoding;
+                        break;
+                    }
+                    AMediaCodec_delete(source->codec);
+                    source->codec = nullptr;
+                }
             }
-            LOGI("Opened %s: %d Hz, %d ch, %d bit, %lld ms", mime, source->sampleRate, source->channels,
-                 source->bitDepth, static_cast<long long>(source->durationUs / 1000));
+            if (source->codec) {
+                // Trust what the decoder says it will output over what we asked for.
+                AMediaFormat* out = AMediaCodec_getOutputFormat(source->codec);
+                if (out) {
+                    int32_t outEncoding = 0;
+                    if (!source->rawPassthrough && AMediaFormat_getInt32(out, "pcm-encoding", &outEncoding)) {
+                        source->pcmEncoding = outEncoding;
+                    }
+                    AMediaFormat_delete(out);
+                }
+            }
+            LOGI("Opened %s: %d Hz, %d ch, %d bit, %lld ms, decoding as encoding %d", mime, source->sampleRate,
+                 source->channels, source->bitDepth, static_cast<long long>(source->durationUs / 1000),
+                 source->pcmEncoding);
         }
         AMediaFormat_delete(format);
     }
@@ -413,9 +441,11 @@ bool PlaybackEngine::DecodeStep() {
     if (outIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
         AMediaFormat* format = AMediaCodec_getOutputFormat(src.codec);
         AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &src.decodedChannels);
-        if (!AMediaFormat_getInt32(format, "pcm-encoding", &src.pcmEncoding)) {
-            src.pcmEncoding = kEncodingPcm16;
+        int32_t encoding = 0;
+        if (!src.rawPassthrough && AMediaFormat_getInt32(format, "pcm-encoding", &encoding)) {
+            src.pcmEncoding = encoding;
         }
+        LOGI("Decoder output: %d ch, encoding %d", src.decodedChannels, src.pcmEncoding);
         AMediaFormat_delete(format);
         return true;
     }

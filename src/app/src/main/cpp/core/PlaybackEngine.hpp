@@ -26,6 +26,7 @@ struct MediaSource {
     int32_t decodedChannels{0};
     int32_t pcmEncoding{2};
     bool inputDone{false};
+    bool rawPassthrough{false};  // extractor already outputs PCM; decoder just passes it on
 
     // Takes ownership of fd (closed on failure too). Returns nullptr if no decodable audio track.
     static std::unique_ptr<MediaSource> Open(int fd);
