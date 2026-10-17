@@ -71,6 +71,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
     // 6. USB Device Manager
     val usbBridge = UsbDeviceManagerBridge(context, hardwareDatabase) { autoLoadedPreset ->
         _dspRackState.value = autoLoadedPreset
+        PlaybackHolder.player?.setDsp(autoLoadedPreset)
         // The output mode follows the player's route (Android 14 bit-perfect when the DAC offers it).
     }
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
@@ -126,6 +127,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
         future.addListener({
             controller = runCatching { future.get() }.getOrNull()?.also {
                 it.addListener(controllerListener)
+                PlaybackHolder.player?.setDsp(_dspRackState.value)
                 refreshTrackMetadata()
             }
         }, ContextCompat.getMainExecutor(appContext))
@@ -234,6 +236,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
     fun updateDspRack(transform: (DspRackState) -> DspRackState) {
         val newState = transform(_dspRackState.value)
         _dspRackState.value = newState
+        PlaybackHolder.player?.setDsp(newState)
         // If USB DAC connected, update in bridge
         usbBridge.saveCurrentPreset(newState)
     }

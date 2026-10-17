@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <algorithm>
 #include "PlaybackEngine.hpp"
 
 using Audiophile::Core::PlaybackEngine;
@@ -45,6 +46,28 @@ JNIEXPORT void JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetOutputFormat(JNIEnv*, jclass, jlong handle,
                                                                             jint encoding, jboolean bitPerfect) {
     FromHandle(handle)->SetOutputFormat(encoding, bitPerfect == JNI_TRUE);
+}
+
+// bands: {type, frequencyHz, gainDb, q, enabled(0/1)} per band, flattened.
+JNIEXPORT void JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetEq(JNIEnv* env, jclass, jlong handle,
+                                                                  jboolean enabled, jdouble preampDb,
+                                                                  jdoubleArray bands) {
+    using Audiophile::DSP::ParametricEq;
+    const jsize length = bands ? env->GetArrayLength(bands) : 0;
+    const int count = std::min<int>(length / 5, ParametricEq::kMaxBands);
+    jdouble values[ParametricEq::kMaxBands * 5];
+    if (count > 0) env->GetDoubleArrayRegion(bands, 0, count * 5, values);
+    ParametricEq::Band parsed[ParametricEq::kMaxBands];
+    for (int i = 0; i < count; ++i) {
+        const jdouble* v = values + i * 5;
+        parsed[i].type = static_cast<ParametricEq::Type>(static_cast<int32_t>(v[0]));
+        parsed[i].frequencyHz = v[1];
+        parsed[i].gainDb = v[2];
+        parsed[i].q = v[3];
+        parsed[i].enabled = v[4] != 0.0;
+    }
+    FromHandle(handle)->SetEq(parsed, count, preampDb, enabled == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL

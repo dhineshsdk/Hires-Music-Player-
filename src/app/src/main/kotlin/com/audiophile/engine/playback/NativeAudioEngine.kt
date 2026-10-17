@@ -28,6 +28,8 @@ class NativeAudioEngine {
     fun pollTransitions(): Int = nativePollTransitions(handle)
     /** Output sample format (AudioFormat encoding); bitPerfect disables resampling. Reopens the stream. */
     fun setOutputFormat(encoding: Int, bitPerfect: Boolean) = nativeSetOutputFormat(handle, encoding, bitPerfect)
+    /** Parametric EQ; [bands] is {type, frequencyHz, gainDb, q, enabled} per band, flattened. */
+    fun setEq(enabled: Boolean, preampDb: Double, bands: DoubleArray) = nativeSetEq(handle, enabled, preampDb, bands)
     fun play() = nativePlay(handle)
     fun pause() = nativePause(handle)
     fun seekTo(positionMs: Long) = nativeSeekTo(handle, positionMs)
@@ -58,6 +60,7 @@ class NativeAudioEngine {
         @JvmStatic external fun nativeClearNext(handle: Long)
         @JvmStatic external fun nativePollTransitions(handle: Long): Int
         @JvmStatic external fun nativeSetOutputFormat(handle: Long, encoding: Int, bitPerfect: Boolean)
+        @JvmStatic external fun nativeSetEq(handle: Long, enabled: Boolean, preampDb: Double, bands: DoubleArray)
         @JvmStatic external fun nativePlay(handle: Long)
         @JvmStatic external fun nativePause(handle: Long)
         @JvmStatic external fun nativeSeekTo(handle: Long, positionMs: Long)

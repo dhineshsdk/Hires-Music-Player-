@@ -161,6 +161,8 @@ bool PlaybackEngine::Open(int fd) {
     }
 
     SetPlayingInfo(*current_);
+    eq_.SetSampleRate(GetSampleRate());
+    eq_.RequestReset();
     ring_ = std::make_unique<Ring>();
     framesWritten_ = 0;
     framesPlayed_.store(0);
@@ -312,6 +314,7 @@ void PlaybackEngine::SeekTo(int64_t positionMs) {
     if (landedUs < 0) landedUs = positionMs * 1000;
 
     ring_->Clear();
+    eq_.RequestReset();
     framesWritten_ = 0;
     framesPlayed_.store(0);
     playingStartFrame_.store(0);
@@ -560,6 +563,7 @@ size_t PlaybackEngine::ReadConverted(void* out, int32_t numFrames) {
         float* dst = static_cast<float*>(out);
         const size_t got = ring_ ? ring_->Read({dst, wanted}) : 0;
         std::memset(dst + got, 0, (wanted - got) * sizeof(float));
+        eq_.Process(dst, wanted / kOutputChannels);
         return got;
     }
 
@@ -569,6 +573,7 @@ size_t PlaybackEngine::ReadConverted(void* out, int32_t numFrames) {
         const size_t chunk = std::min(wanted - done, convertBuffer_.size());
         const size_t got = ring_ ? ring_->Read({convertBuffer_.data(), chunk}) : 0;
         std::fill(convertBuffer_.begin() + got, convertBuffer_.begin() + chunk, 0.0f);
+        eq_.Process(convertBuffer_.data(), chunk / kOutputChannels);
         total += got;
         switch (streamFormat_) {
             case oboe::AudioFormat::I16: {

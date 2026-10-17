@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include "LockFreeAudioRingBuffer.hpp"
+#include "ParametricEq.hpp"
 
 namespace Audiophile::Core {
 
@@ -69,6 +70,11 @@ public:
     // bitPerfect turns off resampling in Oboe; the caller has already set a bit-perfect
     // mixer for this rate and format. Reopens the stream if one is open.
     void SetOutputFormat(int32_t encoding, bool bitPerfect);
+
+    // Parametric EQ applied in the audio callback. Flat or disabled leaves samples untouched.
+    void SetEq(const DSP::ParametricEq::Band* bands, int count, double preampDb, bool enabled) {
+        eq_.SetBands(bands, count, preampDb, enabled);
+    }
 
     // Number of gapless track changes since Open(); also frees the finished source.
     int32_t PollTransitions();
@@ -136,7 +142,8 @@ private:
     std::atomic<int32_t> outputEncoding_{4};   // AudioFormat.ENCODING_PCM_FLOAT
     std::atomic<bool> bitPerfect_{false};
     oboe::AudioFormat streamFormat_{oboe::AudioFormat::Float};  // set while the stream is stopped
-    std::array<float, 4096> convertBuffer_{};  // callback-only scratch for integer output
+    std::array<float, 4096> convertBuffer_{};
+    DSP::ParametricEq eq_;  // callback-only scratch for integer output
     std::atomic<State> state_{State::Idle};
     std::atomic<bool> playWhenReady_{false};
 

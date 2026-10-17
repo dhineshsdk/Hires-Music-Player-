@@ -21,6 +21,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.SimpleBasePlayer.MediaItemData
 import androidx.media3.common.util.UnstableApi
+import com.audiophile.engine.model.DspRackState
+import com.audiophile.engine.model.FilterTopology
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,6 +117,33 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     fun setBitPerfectEnabled(enabled: Boolean) {
         bitPerfectEnabled = enabled
         applyRoute()
+    }
+
+    /**
+     * Applies the DSP rack's parametric EQ in the engine. A preamp equal to the largest boost
+     * keeps the curve from clipping. Flat or bypassed leaves the stream bit-perfect.
+     */
+    fun setDsp(state: DspRackState) {
+        val enabled = state.peqEnabled && !state.isMasterBypassed
+        val bands = DoubleArray(state.peqBands.size * 5)
+        state.peqBands.forEachIndexed { i, band ->
+            bands[i * 5] = when (band.topology) {
+                FilterTopology.PEAKING -> 0.0
+                FilterTopology.LOW_SHELF -> 1.0
+                FilterTopology.HIGH_SHELF -> 2.0
+                FilterTopology.LOW_PASS -> 3.0
+                FilterTopology.HIGH_PASS -> 4.0
+            }
+            bands[i * 5 + 1] = band.frequencyHz.toDouble()
+            bands[i * 5 + 2] = band.gainDb.toDouble()
+            bands[i * 5 + 3] = band.qFactor.toDouble()
+            bands[i * 5 + 4] = if (band.isEnabled) 1.0 else 0.0
+        }
+        val maxBoostDb = if (!enabled) 0.0 else (0..120).maxOf { step ->
+            val hz = 20.0 * Math.pow(1000.0, step / 120.0)  // 20 Hz to 20 kHz, log spaced
+            state.evaluateTotalEqMagnitudeDb(hz.toFloat())
+        }.coerceAtLeast(0.0)
+        engine.setEq(enabled, -maxBoostDb, bands)
     }
 
     private fun applyRoute() {
