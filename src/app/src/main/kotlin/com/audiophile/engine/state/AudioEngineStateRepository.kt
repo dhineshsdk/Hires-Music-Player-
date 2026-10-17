@@ -16,12 +16,15 @@ import com.audiophile.engine.bluetooth.BluetoothTelemetryManager
 import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.hardware.HardwareProfileDatabase
 import com.audiophile.engine.hardware.UsbDeviceManagerBridge
+import com.audiophile.engine.library.LibraryTrack
+import com.audiophile.engine.library.MusicLibrary
 import com.audiophile.engine.model.*
 import com.audiophile.engine.service.DeterministicAudioService
 import com.audiophile.engine.service.PlaybackHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
 /**
  * Central State Repository for the Bit-Perfect Hi-Res Audio Engine.
@@ -40,6 +43,11 @@ class AudioEngineStateRepository private constructor(context: Context) {
     // Empty until the playback engine reports a loaded track.
     private val _trackMetadata = MutableStateFlow(TrackMetadata())
     val trackMetadata: StateFlow<TrackMetadata> = _trackMetadata.asStateFlow()
+
+    // Music library from MediaStore; empty until the read permission is granted.
+    private val musicLibrary = MusicLibrary(appContext)
+    private val _library = MutableStateFlow<List<LibraryTrack>>(emptyList())
+    val library: StateFlow<List<LibraryTrack>> = _library.asStateFlow()
 
     // 2. ARM64 NEON Forensic Metrics
     // Empty until the native ForensicStreamAuditor reports measurements from real samples.
@@ -175,6 +183,31 @@ class AudioEngineStateRepository private constructor(context: Context) {
                 .build()
         }
         c.setMediaItems(items)
+        c.prepare()
+        c.play()
+    }
+
+    fun refreshLibrary() {
+        scope.launch(Dispatchers.IO) { _library.value = musicLibrary.loadTracks() }
+    }
+
+    /** Replaces the queue with [tracks] and starts at [startIndex]. */
+    fun playTracks(tracks: List<LibraryTrack>, startIndex: Int) {
+        val c = controller ?: return
+        val items = tracks.map { track ->
+            MediaItem.Builder()
+                .setMediaId(track.uri.toString())
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .build()
+                )
+                .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(track.uri).build())
+                .build()
+        }
+        c.setMediaItems(items, startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)), 0L)
         c.prepare()
         c.play()
     }
