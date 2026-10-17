@@ -42,6 +42,12 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativePollTransitions(JNIE
 }
 
 JNIEXPORT void JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetOutputFormat(JNIEnv*, jclass, jlong handle,
+                                                                            jint encoding, jboolean bitPerfect) {
+    FromHandle(handle)->SetOutputFormat(encoding, bitPerfect == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativePlay(JNIEnv*, jclass, jlong handle) {
     FromHandle(handle)->Play();
 }
@@ -76,14 +82,14 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeGetDurationMs(JNIEnv
     return FromHandle(handle)->GetDurationMs();
 }
 
-// Returns {sourceSampleRate, channelCount, bitDepth, outputSampleRate}.
+// Returns {sourceSampleRate, channelCount, bitDepth, outputSampleRate, outputEncoding}.
 JNIEXPORT jintArray JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativeGetFormat(JNIEnv* env, jclass, jlong handle) {
     PlaybackEngine* engine = FromHandle(handle);
-    const jint values[4] = {engine->GetSampleRate(), engine->GetChannelCount(), engine->GetBitDepth(),
-                            engine->GetOutputSampleRate()};
-    jintArray result = env->NewIntArray(4);
-    env->SetIntArrayRegion(result, 0, 4, values);
+    const jint values[5] = {engine->GetSampleRate(), engine->GetChannelCount(), engine->GetBitDepth(),
+                            engine->GetOutputSampleRate(), engine->GetOutputEncoding()};
+    jintArray result = env->NewIntArray(5);
+    env->SetIntArrayRegion(result, 0, 5, values);
     return result;
 }
 

@@ -71,8 +71,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
     // 6. USB Device Manager
     val usbBridge = UsbDeviceManagerBridge(context, hardwareDatabase) { autoLoadedPreset ->
         _dspRackState.value = autoLoadedPreset
-        // Audio still goes through Android's USB output until the direct driver exists (Phase 5).
-        _outputMode.value = OutputMode.ModeA_StandardAndroid
+        // The output mode follows the player's route (Android 14 bit-perfect when the DAC offers it).
     }
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
 
@@ -146,6 +145,9 @@ class AudioEngineStateRepository private constructor(context: Context) {
         }
         val meta = c.mediaMetadata
         val format = PlaybackHolder.player?.engineFormat?.value
+        val route = PlaybackHolder.player?.route?.value
+        _outputMode.value = if (route?.bitPerfect == true) OutputMode.ModeB_Android14_BitPerfect
+                            else OutputMode.ModeA_StandardAndroid
         val uri = item.requestMetadata.mediaUri ?: item.localConfiguration?.uri
         val extension = uri?.lastPathSegment?.substringAfterLast('.', "")?.uppercase().orEmpty()
         val sampleRate = format?.sampleRateHz ?: 0
@@ -237,7 +239,9 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
 
     fun setOutputMode(mode: OutputMode) {
-        _outputMode.value = mode
+        // Only the shared mixer and Android 14 bit-perfect exist so far; any non-standard mode asks for bit-perfect.
+        PlaybackHolder.player?.setBitPerfectEnabled(mode != OutputMode.ModeA_StandardAndroid)
+        refreshTrackMetadata()
     }
 
     fun toggleFakeHiResSimulation() {

@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstring>
 
@@ -19,6 +20,22 @@ constexpr int32_t kEncodingPcmFloat = 4;
 constexpr int32_t kEncodingPcm24Packed = 21;
 constexpr int32_t kEncodingPcm32 = 22;
 constexpr int64_t kCodecTimeoutUs = 10000;
+
+oboe::AudioFormat OboeFormatFor(int32_t encoding) {
+    switch (encoding) {
+        case kEncodingPcm16: return oboe::AudioFormat::I16;
+        case kEncodingPcm24Packed: return oboe::AudioFormat::I24;
+        case kEncodingPcm32: return oboe::AudioFormat::I32;
+        default: return oboe::AudioFormat::Float;
+    }
+}
+
+// Float to integer at full scale. Samples that came from integer PCM of this width or
+// narrower convert back exactly, so a 16/24-bit file reaches the DAC unchanged.
+inline int32_t ToInt(float v, double scale, double maxValue) {
+    const double x = std::nearbyint(static_cast<double>(v) * scale);
+    return static_cast<int32_t>(std::clamp(x, -scale, maxValue));
+}
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -159,11 +176,14 @@ void PlaybackEngine::SetPlayingInfo(const MediaSource& source) {
 
 bool PlaybackEngine::OpenStreamLocked() {
     oboe::AudioStreamBuilder builder;
+    const bool bitPerfect = bitPerfect_.load();
     builder.setDirection(oboe::Direction::Output)
-        ->setFormat(oboe::AudioFormat::Float)
+        ->setFormat(OboeFormatFor(outputEncoding_.load()))
+        ->setFormatConversionAllowed(false)
         ->setChannelCount(kOutputChannels)
         ->setSampleRate(GetSampleRate())
-        ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best)
+        ->setSampleRateConversionQuality(bitPerfect ? oboe::SampleRateConversionQuality::None
+                                                    : oboe::SampleRateConversionQuality::Best)
         ->setUsage(oboe::Usage::Media)
         ->setContentType(oboe::ContentType::Music)
         ->setSharingMode(oboe::SharingMode::Shared)
@@ -177,8 +197,10 @@ bool PlaybackEngine::OpenStreamLocked() {
         stream_.reset();
         return false;
     }
+    streamFormat_ = stream_->getFormat();
     outputSampleRate_.store(stream_->getSampleRate(), std::memory_order_relaxed);
-    LOGI("Output stream open at %d Hz", stream_->getSampleRate());
+    LOGI("Output stream open at %d Hz, format %s%s", stream_->getSampleRate(),
+         oboe::convertToText(streamFormat_), bitPerfect ? ", bit-perfect" : "");
     return true;
 }
 
@@ -187,6 +209,22 @@ void PlaybackEngine::CloseStreamLocked() {
         stream_->stop();
         stream_->close();
         stream_.reset();
+    }
+}
+
+void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
+    if (encoding != kEncodingPcm16 && encoding != kEncodingPcm24Packed && encoding != kEncodingPcm32) {
+        encoding = kEncodingPcmFloat;
+    }
+    if (encoding == outputEncoding_.load() && bitPerfect == bitPerfect_.load()) return;
+    outputEncoding_.store(encoding);
+    bitPerfect_.store(bitPerfect);
+
+    std::lock_guard<std::mutex> lock(streamMutex_);
+    if (!stream_) return;
+    CloseStreamLocked();
+    if (OpenStreamLocked() && GetState() == State::Playing) {
+        stream_->requestStart();
     }
 }
 
@@ -335,6 +373,10 @@ bool PlaybackEngine::SwapToNext() {
     if (!next_ || next_->sampleRate != current_->sampleRate) {
         return false;
     }
+    // A bit-perfect 16-bit stream cannot carry a 24-bit track unchanged; let Kotlin reopen for it.
+    if (bitPerfect_.load() && outputEncoding_.load() == kEncodingPcm16 && next_->bitDepth > 16) {
+        return false;
+    }
     pendingChannels_.store(next_->channels, std::memory_order_relaxed);
     pendingBits_.store(next_->bitDepth, std::memory_order_relaxed);
     pendingDurationMs_.store(next_->durationUs / 1000, std::memory_order_relaxed);
@@ -454,11 +496,9 @@ void PlaybackEngine::WriteToRing(const float* interleaved, size_t frames) {
 
 oboe::DataCallbackResult PlaybackEngine::onAudioReady(oboe::AudioStream* /*stream*/, void* audioData,
                                                       int32_t numFrames) {
-    float* out = static_cast<float*>(audioData);
     const size_t wanted = static_cast<size_t>(numFrames) * kOutputChannels;
-    const size_t got = ring_ ? ring_->Read({out, wanted}) : 0;
+    const size_t got = ReadConverted(audioData, numFrames);
     if (got < wanted) {
-        std::memset(out + got, 0, (wanted - got) * sizeof(float));
         if (decoderDone_.load(std::memory_order_acquire) && ring_ && ring_->AvailableToRead() == 0) {
             state_.store(State::Ended, std::memory_order_release);
         }
@@ -480,6 +520,63 @@ oboe::DataCallbackResult PlaybackEngine::onAudioReady(oboe::AudioStream* /*strea
         transitions_.fetch_add(1, std::memory_order_release);
     }
     return oboe::DataCallbackResult::Continue;
+}
+
+// Fills the callback buffer from the ring in the stream's format, zero-filling any shortfall.
+// Returns the number of samples taken from the ring. Real-time safe: fixed scratch, no locks.
+size_t PlaybackEngine::ReadConverted(void* out, int32_t numFrames) {
+    const size_t wanted = static_cast<size_t>(numFrames) * kOutputChannels;
+    if (streamFormat_ == oboe::AudioFormat::Float) {
+        float* dst = static_cast<float*>(out);
+        const size_t got = ring_ ? ring_->Read({dst, wanted}) : 0;
+        std::memset(dst + got, 0, (wanted - got) * sizeof(float));
+        return got;
+    }
+
+    size_t total = 0;
+    size_t done = 0;
+    while (done < wanted) {
+        const size_t chunk = std::min(wanted - done, convertBuffer_.size());
+        const size_t got = ring_ ? ring_->Read({convertBuffer_.data(), chunk}) : 0;
+        std::fill(convertBuffer_.begin() + got, convertBuffer_.begin() + chunk, 0.0f);
+        total += got;
+        switch (streamFormat_) {
+            case oboe::AudioFormat::I16: {
+                int16_t* dst = static_cast<int16_t*>(out) + done;
+                for (size_t i = 0; i < chunk; ++i) {
+                    dst[i] = static_cast<int16_t>(ToInt(convertBuffer_[i], 32768.0, 32767.0));
+                }
+                break;
+            }
+            case oboe::AudioFormat::I24: {
+                uint8_t* dst = static_cast<uint8_t*>(out) + done * 3;
+                for (size_t i = 0; i < chunk; ++i) {
+                    const int32_t v = ToInt(convertBuffer_[i], 8388608.0, 8388607.0);
+                    dst[i * 3] = static_cast<uint8_t>(v);
+                    dst[i * 3 + 1] = static_cast<uint8_t>(v >> 8);
+                    dst[i * 3 + 2] = static_cast<uint8_t>(v >> 16);
+                }
+                break;
+            }
+            default: {  // I32
+                int32_t* dst = static_cast<int32_t*>(out) + done;
+                for (size_t i = 0; i < chunk; ++i) {
+                    dst[i] = ToInt(convertBuffer_[i], 2147483648.0, 2147483647.0);
+                }
+                break;
+            }
+        }
+        done += chunk;
+        if (got < chunk) {
+            // Ring ran dry: the rest of this buffer is silence.
+            const size_t rest = wanted - done;
+            const size_t bytesPerSample = streamFormat_ == oboe::AudioFormat::I16 ? 2
+                                        : streamFormat_ == oboe::AudioFormat::I24 ? 3 : 4;
+            std::memset(static_cast<uint8_t*>(out) + done * bytesPerSample, 0, rest * bytesPerSample);
+            break;
+        }
+    }
+    return total;
 }
 
 void PlaybackEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/, oboe::Result error) {

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
@@ -53,6 +55,18 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     // Bumped whenever the open track changes, so a stale background open is dropped.
     private var openGeneration = 0
 
+    private val router = BitPerfectRouter(audioManager)
+    private var bitPerfectEnabled = true
+    private val _route = MutableStateFlow(BitPerfectRouter.SHARED)
+    /** Current output route: bit-perfect USB or the shared mixer. */
+    val route: StateFlow<BitPerfectRouter.Route> = _route.asStateFlow()
+
+    private val deviceCallback = object : AudioDeviceCallback() {
+        // A USB DAC was plugged in or removed: pick the route again for the open track.
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = applyRoute()
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = applyRoute()
+    }
+
     private val _engineFormat = MutableStateFlow<NativeAudioEngine.Format?>(null)
     /** Format of the open track as the engine sees it (source and device rates). */
     val engineFormat: StateFlow<NativeAudioEngine.Format?> = _engineFormat.asStateFlow()
@@ -94,6 +108,22 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         mainHandler.post(ticker)
+        audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler)
+    }
+
+    /** Turns Android 14 bit-perfect USB output on or off (the shared mixer is used when off). */
+    fun setBitPerfectEnabled(enabled: Boolean) {
+        bitPerfectEnabled = enabled
+        applyRoute()
+    }
+
+    private fun applyRoute() {
+        if (preparedIndex < 0) return
+        val format = engine.format
+        val route = router.routeFor(format.sampleRateHz, format.bitDepth, bitPerfectEnabled)
+        engine.setOutputFormat(route.encoding, route.bitPerfect)
+        _route.value = route
+        _engineFormat.value = engine.format
     }
 
     override fun getState(): SimpleBasePlayer.State {
@@ -203,6 +233,8 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
 
     override fun handleRelease(): ListenableFuture<*> {
         mainHandler.removeCallbacks(ticker)
+        audioManager.unregisterAudioDeviceCallback(deviceCallback)
+        router.clear()
         runCatching { context.unregisterReceiver(noisyReceiver) }
         audioManager.abandonAudioFocusRequest(focusRequest)
         engine.stop()
@@ -237,7 +269,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                     preparedIndex = index
                     seenTransitions = 0
                     durationMs = engine.durationMs
-                    _engineFormat.value = engine.format
+                    applyRoute()
                     if (startPositionMs > 0) engine.seekTo(startPositionMs)
                     playbackState = Player.STATE_READY
                     if (playWhenReady) engine.play()

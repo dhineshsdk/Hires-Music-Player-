@@ -3,6 +3,7 @@
 #include <oboe/Oboe.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaExtractor.h>
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -63,6 +64,11 @@ public:
     void SeekTo(int64_t positionMs);
     void Release();
 
+    // Output sample format as an android.media.AudioFormat encoding (2, 4, 21 or 22).
+    // bitPerfect turns off resampling in Oboe; the caller has already set a bit-perfect
+    // mixer for this rate and format. Reopens the stream if one is open.
+    void SetOutputFormat(int32_t encoding, bool bitPerfect);
+
     // Number of gapless track changes since Open(); also frees the finished source.
     int32_t PollTransitions();
 
@@ -73,6 +79,7 @@ public:
     int32_t GetChannelCount() const noexcept { return playingChannels_.load(std::memory_order_relaxed); }
     int32_t GetBitDepth() const noexcept { return playingBits_.load(std::memory_order_relaxed); }
     int32_t GetOutputSampleRate() const noexcept { return outputSampleRate_.load(std::memory_order_relaxed); }
+    int32_t GetOutputEncoding() const noexcept { return outputEncoding_.load(std::memory_order_relaxed); }
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData, int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
@@ -91,6 +98,7 @@ private:
     bool SwapToNext();
     void WriteToRing(const float* interleaved, size_t frames);
     void SetPlayingInfo(const MediaSource& source);
+    size_t ReadConverted(void* out, int32_t numFrames);
 
     // Sources. current_ belongs to the decoder thread while it runs; next_ and retired_
     // are guarded by sourceMutex_.
@@ -124,6 +132,10 @@ private:
     std::mutex streamMutex_;  // guards stream_ between control calls and onErrorAfterClose
     std::shared_ptr<oboe::AudioStream> stream_;
     std::atomic<int32_t> outputSampleRate_{0};
+    std::atomic<int32_t> outputEncoding_{4};   // AudioFormat.ENCODING_PCM_FLOAT
+    std::atomic<bool> bitPerfect_{false};
+    oboe::AudioFormat streamFormat_{oboe::AudioFormat::Float};  // set while the stream is stopped
+    std::array<float, 4096> convertBuffer_{};  // callback-only scratch for integer output
     std::atomic<State> state_{State::Idle};
     std::atomic<bool> playWhenReady_{false};
 

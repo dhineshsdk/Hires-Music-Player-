@@ -12,7 +12,9 @@ class NativeAudioEngine {
         val sampleRateHz: Int,
         val channels: Int,
         val bitDepth: Int,
-        val outputSampleRateHz: Int
+        val outputSampleRateHz: Int,
+        /** android.media.AudioFormat encoding of the output stream. */
+        val outputEncoding: Int
     )
 
     private var handle: Long = nativeCreate()
@@ -24,6 +26,8 @@ class NativeAudioEngine {
     fun clearNext() = nativeClearNext(handle)
     /** Count of gapless track changes since the last open(). */
     fun pollTransitions(): Int = nativePollTransitions(handle)
+    /** Output sample format (AudioFormat encoding); bitPerfect disables resampling. Reopens the stream. */
+    fun setOutputFormat(encoding: Int, bitPerfect: Boolean) = nativeSetOutputFormat(handle, encoding, bitPerfect)
     fun play() = nativePlay(handle)
     fun pause() = nativePause(handle)
     fun seekTo(positionMs: Long) = nativeSeekTo(handle, positionMs)
@@ -33,7 +37,7 @@ class NativeAudioEngine {
     val positionMs: Long get() = nativeGetPositionMs(handle)
     val durationMs: Long get() = nativeGetDurationMs(handle)
     val format: Format
-        get() = nativeGetFormat(handle).let { Format(it[0], it[1], it[2], it[3]) }
+        get() = nativeGetFormat(handle).let { Format(it[0], it[1], it[2], it[3], it[4]) }
 
     fun destroy() {
         if (handle != 0L) {
@@ -53,6 +57,7 @@ class NativeAudioEngine {
         @JvmStatic external fun nativeSetNext(handle: Long, fd: Int): Boolean
         @JvmStatic external fun nativeClearNext(handle: Long)
         @JvmStatic external fun nativePollTransitions(handle: Long): Int
+        @JvmStatic external fun nativeSetOutputFormat(handle: Long, encoding: Int, bitPerfect: Boolean)
         @JvmStatic external fun nativePlay(handle: Long)
         @JvmStatic external fun nativePause(handle: Long)
         @JvmStatic external fun nativeSeekTo(handle: Long, positionMs: Long)
