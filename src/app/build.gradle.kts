@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.audiophile.engine"
     compileSdk = 34
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         applicationId = "com.audiophile.engine"
