@@ -25,6 +25,12 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Host tests (sample-format rules)
+        working-directory: src/app/src/test/cpp
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -I../../main/cpp/core pcm_encoding_test.cpp -o pcm_encoding_test
+          ./pcm_encoding_test
+
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
 

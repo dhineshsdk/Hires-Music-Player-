@@ -1,4 +1,5 @@
 #include "PlaybackEngine.hpp"
+#include "PcmEncoding.hpp"
 #include "PcmFormatProbe.hpp"
 #include <android/log.h>
 #include <sys/stat.h>
@@ -15,11 +16,6 @@
 namespace Audiophile::Core {
 
 namespace {
-// android.media.AudioFormat encodings, as reported in the "pcm-encoding" key.
-constexpr int32_t kEncodingPcm16 = 2;
-constexpr int32_t kEncodingPcmFloat = 4;
-constexpr int32_t kEncodingPcm24Packed = 21;
-constexpr int32_t kEncodingPcm32 = 22;
 constexpr int64_t kCodecTimeoutUs = 10000;
 
 oboe::AudioFormat OboeFormatFor(int32_t encoding) {
@@ -67,12 +63,14 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
             AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &source->sampleRate);
             AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &source->channels);
             AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &source->durationUs);
-            int32_t trackEncoding = kEncodingPcm16;
-            AMediaFormat_getInt32(format, "pcm-encoding", &trackEncoding);
-            if (!AMediaFormat_getInt32(format, "bits-per-sample", &source->bitDepth)) {
-                source->bitDepth = trackEncoding == kEncodingPcm24Packed ? 24
-                                 : (trackEncoding == kEncodingPcm32 || trackEncoding == kEncodingPcmFloat) ? 32 : 16;
-            }
+            int32_t keyEncoding = 0;
+            int32_t keyBits = 0;
+            const bool hasEncoding = AMediaFormat_getInt32(format, "pcm-encoding", &keyEncoding);
+            const bool hasBits = AMediaFormat_getInt32(format, "bits-per-sample", &keyBits);
+            const int32_t trackEncoding = EncodingFromRawTrack(hasEncoding, keyEncoding, hasBits, keyBits);
+            source->bitDepth = hasBits ? keyBits
+                             : trackEncoding == kEncodingPcm24Packed ? 24
+                             : (trackEncoding == kEncodingPcm32 || trackEncoding == kEncodingPcmFloat) ? 32 : 16;
 
             AMediaExtractor_selectTrack(source->extractor, i);
             // Android's FLAC and WAV extractors already hand out PCM ("audio/raw") in the
@@ -104,17 +102,9 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
                     source->codec = nullptr;
                 }
             }
-            if (source->codec) {
-                // Trust what the decoder says it will output over what we asked for.
-                AMediaFormat* out = AMediaCodec_getOutputFormat(source->codec);
-                if (out) {
-                    int32_t outEncoding = 0;
-                    if (!source->rawPassthrough && AMediaFormat_getInt32(out, "pcm-encoding", &outEncoding)) {
-                        source->pcmEncoding = outEncoding;
-                    }
-                    AMediaFormat_delete(out);
-                }
-            }
+            // For decoded (non-raw) tracks the real output encoding is only known once the
+            // codec reports INFO_OUTPUT_FORMAT_CHANGED; getOutputFormat() here would just
+            // echo our request. DecodeStep() sets pcmEncoding from that callback.
             LOGI("Opened %s: %d Hz, %d ch, %d bit, %lld ms, decoding as encoding %d", mime, source->sampleRate,
                  source->channels, source->bitDepth, static_cast<long long>(source->durationUs / 1000),
                  source->pcmEncoding);
@@ -445,9 +435,10 @@ bool PlaybackEngine::DecodeStep() {
     if (outIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
         AMediaFormat* format = AMediaCodec_getOutputFormat(src.codec);
         AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &src.decodedChannels);
-        int32_t encoding = 0;
-        if (!src.rawPassthrough && AMediaFormat_getInt32(format, "pcm-encoding", &encoding)) {
-            src.pcmEncoding = encoding;
+        if (!src.rawPassthrough) {
+            int32_t encoding = 0;
+            const bool hasKey = AMediaFormat_getInt32(format, "pcm-encoding", &encoding);
+            src.pcmEncoding = EncodingFromOutputFormat(hasKey, encoding);
         }
         src.encodingVerified = false;
         LOGI("Decoder output: %d ch, encoding %d", src.decodedChannels, src.pcmEncoding);
@@ -464,20 +455,19 @@ bool PlaybackEngine::DecodeStep() {
         const uint8_t* pcm = data + info.offset;
         if (!src.encodingVerified &&
             (src.pcmEncoding == kEncodingPcmFloat || src.pcmEncoding == kEncodingPcm16)) {
-            // The format key can claim float while the decoder still sends 16-bit (or the
-            // reverse); misreading either way is loud noise. Check the samples themselves.
+            // Guard only: the encoding comes from the decoder's reported output format. If the
+            // first audible buffer disagrees, say so in the log and keep the reported format.
             const int verdict = LooksLikeFloatPcm(pcm, static_cast<size_t>(info.size));
             if (verdict != 0) {
-                const int32_t actual = verdict > 0 ? kEncodingPcmFloat : kEncodingPcm16;
-                if (actual != src.pcmEncoding) {
-                    LOGI("Decoder said encoding %d but sends %d; using %d", src.pcmEncoding, actual, actual);
-                    src.pcmEncoding = actual;
+                const bool looksFloat = verdict > 0;
+                if (looksFloat != (src.pcmEncoding == kEncodingPcmFloat)) {
+                    LOGE("Decoder reported encoding %d but the samples look %s", src.pcmEncoding,
+                         looksFloat ? "like float" : "like integer PCM");
                 }
                 src.encodingVerified = true;
             }
         }
-        const int32_t bytesPerSample = src.pcmEncoding == kEncodingPcm16 ? 2
-                                     : src.pcmEncoding == kEncodingPcm24Packed ? 3 : 4;
+        const int32_t bytesPerSample = BytesPerSample(src.pcmEncoding);
         const size_t frames = static_cast<size_t>(info.size) / (bytesPerSample * src.decodedChannels);
         const size_t needed = frames * kOutputChannels;
         if (scratchFloats_ < needed) {
