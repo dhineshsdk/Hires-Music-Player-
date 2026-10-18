@@ -23,7 +23,7 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++20", "-O3", "-march=armv8.2-a+fp16+dotprod", "-fno-exceptions")
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                arguments += listOf("-DANDROID_STL=c++_shared", "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384")
             }
         }
     }

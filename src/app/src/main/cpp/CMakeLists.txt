@@ -56,3 +56,6 @@ target_link_libraries(audiophile_engine
     ${vulkan-lib}
     ${mediandk-lib}
 )
+
+# 16 KB page-size alignment for Android 15+ (Exynos 2400 / ARMv9)
+target_link_options(audiophile_engine PRIVATE "-Wl,-z,max-page-size=16384")

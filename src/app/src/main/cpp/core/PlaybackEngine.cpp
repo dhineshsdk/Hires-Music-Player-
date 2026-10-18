@@ -87,9 +87,11 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
                 }
                 source->pcmEncoding = trackEncoding;
             } else {
-                // Ask for float output so 24-bit sources reach the ring without truncation;
-                // fall back to the decoder's native 16-bit output if it refuses.
-                for (const int32_t encoding : {kEncodingPcmFloat, kEncodingPcm16}) {
+                // Ask for float output for high-res sources (>16 bit) so 24-bit audio reaches the ring
+                // without truncation; use native 16-bit output for standard 16-bit sources.
+                const int32_t preferredEncoding = source->bitDepth > 16 ? kEncodingPcmFloat : kEncodingPcm16;
+                const int32_t fallbackEncoding = source->bitDepth > 16 ? kEncodingPcm16 : kEncodingPcmFloat;
+                for (const int32_t encoding : {preferredEncoding, fallbackEncoding}) {
                     source->codec = AMediaCodec_createDecoderByType(mime);
                     if (!source->codec) break;
                     AMediaFormat_setInt32(format, "pcm-encoding", encoding);
@@ -455,14 +457,17 @@ bool PlaybackEngine::DecodeStep() {
         const uint8_t* pcm = data + info.offset;
         if (!src.encodingVerified &&
             (src.pcmEncoding == kEncodingPcmFloat || src.pcmEncoding == kEncodingPcm16)) {
-            // Guard only: the encoding comes from the decoder's reported output format. If the
-            // first audible buffer disagrees, say so in the log and keep the reported format.
+            // Check the samples themselves: on Samsung S24+ (and various OEM CCodec decoders),
+            // the decoder reports pcm-encoding=4 (float) while actually emitting 16-bit integer PCM.
+            // When the bytes disagree with the reported format, correct to the actual encoding.
             const int verdict = LooksLikeFloatPcm(pcm, static_cast<size_t>(info.size));
             if (verdict != 0) {
                 const bool looksFloat = verdict > 0;
-                if (looksFloat != (src.pcmEncoding == kEncodingPcmFloat)) {
-                    LOGE("Decoder reported encoding %d but the samples look %s", src.pcmEncoding,
-                         looksFloat ? "like float" : "like integer PCM");
+                const int32_t actual = looksFloat ? kEncodingPcmFloat : kEncodingPcm16;
+                if (actual != src.pcmEncoding) {
+                    LOGI("Decoder reported encoding %d but samples are actually %s; switching to encoding %d",
+                         src.pcmEncoding, looksFloat ? "float" : "16-bit integer PCM", actual);
+                    src.pcmEncoding = actual;
                 }
                 src.encodingVerified = true;
             }
