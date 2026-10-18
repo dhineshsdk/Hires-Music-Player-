@@ -5,9 +5,11 @@
 namespace Audiophile::Core {
 
 ExynosThreadGovernor::~ExynosThreadGovernor() {
-    if (hint_session_) {
-        APerformanceHint_closeSession(hint_session_);
-        hint_session_ = nullptr;
+    if (__builtin_available(android 33, *)) {
+        if (hint_session_) {
+            APerformanceHint_closeSession(hint_session_);
+            hint_session_ = nullptr;
+        }
     }
 }
 
@@ -19,20 +21,27 @@ void ExynosThreadGovernor::BindCurrentThreadToCluster(int cluster_mask) noexcept
             CPU_SET(i, &cpuset);
         }
     }
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    // Bionic has no pthread_setaffinity_np; sched_setaffinity on the thread id
+    // pins only the calling thread.
+    sched_setaffinity(gettid(), sizeof(cpu_set_t), &cpuset);
 }
 
 bool ExynosThreadGovernor::InitializeADPF(int64_t target_work_duration_ns) noexcept {
-    APerformanceHintManager* manager = APerformanceHint_getManager();
-    if (!manager) return false;
-    pid_t tid = gettid();
-    hint_session_ = APerformanceHint_createSession(manager, &tid, 1, target_work_duration_ns);
-    return hint_session_ != nullptr;
+    if (__builtin_available(android 33, *)) {
+        APerformanceHintManager* manager = APerformanceHint_getManager();
+        if (!manager) return false;
+        pid_t tid = gettid();
+        hint_session_ = APerformanceHint_createSession(manager, &tid, 1, target_work_duration_ns);
+        return hint_session_ != nullptr;
+    }
+    return false;
 }
 
 void ExynosThreadGovernor::ReportActualWorkDuration(int64_t actual_duration_ns) noexcept {
-    if (hint_session_) {
-        APerformanceHint_reportActualWorkDuration(hint_session_, actual_duration_ns);
+    if (__builtin_available(android 33, *)) {
+        if (hint_session_) {
+            APerformanceHint_reportActualWorkDuration(hint_session_, actual_duration_ns);
+        }
     }
 }
 

@@ -1,15 +1,20 @@
 package com.audiophile.engine
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -17,6 +22,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.audiophile.engine.library.LibraryScreen
 import com.audiophile.engine.state.AudioEngineStateRepository
 import com.audiophile.engine.ui.DspRackScreen
 import com.audiophile.engine.ui.NowPlayingScreen
@@ -28,20 +35,57 @@ import com.audiophile.engine.ui.theme.*
 class MainActivity : ComponentActivity() {
 
     private lateinit var stateRepository: AudioEngineStateRepository
+    private val hasAudioPermission = mutableStateOf(false)
+    private val audioPermission =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         stateRepository = AudioEngineStateRepository.getInstance(this)
 
+        val requestPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            if (checkAudioPermission()) stateRepository.refreshLibrary()
+        }
+
+        val pickAudio = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNotEmpty()) stateRepository.openFiles(uris)
+        }
+
+        // Music library access, plus notifications so Media3 can show playback controls on Android 13+.
+        val startupPermissions = buildList {
+            if (!checkAudioPermission()) add(audioPermission)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (startupPermissions.isNotEmpty()) requestPermissions.launch(startupPermissions.toTypedArray())
+
         setContent {
             AudiophileEngineTheme {
-                MainAppScaffold(stateRepository = stateRepository)
+                MainAppScaffold(
+                    stateRepository = stateRepository,
+                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*")) },
+                    hasAudioPermission = hasAudioPermission.value,
+                    onRequestAudioPermission = { requestPermissions.launch(arrayOf(audioPermission)) }
+                )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Pick up music added since the last visit, and a permission granted in Settings.
+        if (checkAudioPermission()) stateRepository.refreshLibrary()
+    }
+
+    private fun checkAudioPermission(): Boolean {
+        val granted = ContextCompat.checkSelfPermission(this, audioPermission) == PackageManager.PERMISSION_GRANTED
+        hasAudioPermission.value = granted
+        return granted
     }
 }
 
 enum class NavigationTab(val title: String) {
+    LIBRARY("LIBRARY"),
     NOW_PLAYING("NOW PLAYING"),
     DSP_RACK("DSP RACK"),
     HARDWARE("HARDWARE")
@@ -49,9 +93,13 @@ enum class NavigationTab(val title: String) {
 
 @Composable
 fun MainAppScaffold(
-    stateRepository: AudioEngineStateRepository
+    stateRepository: AudioEngineStateRepository,
+    onOpenFiles: () -> Unit = {},
+    hasAudioPermission: Boolean = false,
+    onRequestAudioPermission: () -> Unit = {}
 ) {
-    var selectedTab by remember { mutableStateOf(NavigationTab.NOW_PLAYING) }
+    var selectedTab by remember { mutableStateOf(NavigationTab.LIBRARY) }
+    val library by stateRepository.library.collectAsState()
 
     val track by stateRepository.trackMetadata.collectAsState()
     val metrics by stateRepository.forensicMetrics.collectAsState()
@@ -62,6 +110,17 @@ fun MainAppScaffold(
     val outputMode by stateRepository.outputMode.collectAsState()
 
     Scaffold(
+        floatingActionButton = {
+            if (selectedTab == NavigationTab.NOW_PLAYING) {
+                ExtendedFloatingActionButton(
+                    onClick = onOpenFiles,
+                    containerColor = EmberOrange,
+                    contentColor = TextPrimary
+                ) {
+                    Text(text = "OPEN FILES", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = DarkSurface,
@@ -75,6 +134,7 @@ fun MainAppScaffold(
                         icon = {
                             Text(
                                 text = when (tab) {
+                                    NavigationTab.LIBRARY -> "♫"
                                     NavigationTab.NOW_PLAYING -> "▶"
                                     NavigationTab.DSP_RACK -> "🎛"
                                     NavigationTab.HARDWARE -> "🔌"
@@ -107,6 +167,17 @@ fun MainAppScaffold(
                 .padding(paddingValues)
         ) {
             when (selectedTab) {
+                NavigationTab.LIBRARY -> {
+                    LibraryScreen(
+                        tracks = library,
+                        hasPermission = hasAudioPermission,
+                        onRequestPermission = onRequestAudioPermission,
+                        onPlay = { tracks, index ->
+                            stateRepository.playTracks(tracks, index)
+                            selectedTab = NavigationTab.NOW_PLAYING
+                        }
+                    )
+                }
                 NavigationTab.NOW_PLAYING -> {
                     NowPlayingScreen(
                         track = track,
