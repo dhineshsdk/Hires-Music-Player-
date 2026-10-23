@@ -1,5 +1,6 @@
 #include "PlaybackEngine.hpp"
 #include "PcmEncoding.hpp"
+#include "../decoders/DsdDecoder.hpp"
 #include "../decoders/FlacDecoder.hpp"
 #include "../decoders/WavDecoder.hpp"
 #include "PcmFormatProbe.hpp"
@@ -132,7 +133,10 @@ bool MediaSource::OpenNative(int64_t fileSize) {
     std::unique_ptr<Decoders::AudioDecoder> decoder = std::make_unique<Decoders::WavDecoder>();
     if (decoder->Open(*source) != Decoders::DecodeError::None) {
         decoder = std::make_unique<Decoders::FlacDecoder>();
-        if (decoder->Open(*source) != Decoders::DecodeError::None) return false;
+        if (decoder->Open(*source) != Decoders::DecodeError::None) {
+            decoder = std::make_unique<Decoders::DsdDecoder>();
+            if (decoder->Open(*source) != Decoders::DecodeError::None) return false;
+        }
     }
 
     const Decoders::StreamFormat& f = decoder->Format();

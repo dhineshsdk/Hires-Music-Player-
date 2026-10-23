@@ -44,6 +44,8 @@ jobs:
           ./flac_decoder_test t16.flac t16.raw 2 16
           ./flac_decoder_test t24.flac t24.raw 3 24
           ./flac_decoder_test h.flac h.raw 3 24
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders dsd_decoder_test.cpp ../../main/cpp/decoders/DsdDecoder.cpp -o dsd_decoder_test
+          ./dsd_decoder_test
 
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug

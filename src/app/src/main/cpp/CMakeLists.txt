@@ -39,6 +39,7 @@ add_library(audiophile_engine SHARED
     core/PlaybackEngine.cpp
     decoders/WavDecoder.cpp
     decoders/FlacDecoder.cpp
+    decoders/DsdDecoder.cpp
     jni/AudioEngineJniBridge.cpp
     jni/PlaybackEngineJni.cpp
 )
