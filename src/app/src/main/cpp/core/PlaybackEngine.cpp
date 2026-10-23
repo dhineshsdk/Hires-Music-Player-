@@ -1,5 +1,7 @@
 #include "PlaybackEngine.hpp"
 #include "PcmEncoding.hpp"
+#include "../decoders/FlacDecoder.hpp"
+#include "../decoders/WavDecoder.hpp"
 #include "PcmFormatProbe.hpp"
 #include <android/log.h>
 #include <sys/stat.h>
@@ -126,8 +128,12 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
 
 bool MediaSource::OpenNative(int64_t fileSize) {
     auto source = std::make_unique<Decoders::FdSource>(fd, fileSize);
-    auto decoder = std::make_unique<Decoders::WavDecoder>();
-    if (decoder->Open(*source) != Decoders::DecodeError::None) return false;
+    // Our decoders first; each says NotThisFormat unless the magic bytes match.
+    std::unique_ptr<Decoders::AudioDecoder> decoder = std::make_unique<Decoders::WavDecoder>();
+    if (decoder->Open(*source) != Decoders::DecodeError::None) {
+        decoder = std::make_unique<Decoders::FlacDecoder>();
+        if (decoder->Open(*source) != Decoders::DecodeError::None) return false;
+    }
 
     const Decoders::StreamFormat& f = decoder->Format();
     sampleRate = static_cast<int32_t>(f.sampleRate);
@@ -146,7 +152,7 @@ bool MediaSource::OpenNative(int64_t fileSize) {
     nativeSource = std::move(source);
     native = std::move(decoder);
     encodingVerified = true;  // the decoder stated the format; no probe
-    LOGI("Opened WAV natively: %d Hz, %d ch, %d bit, format %d, %lld ms", sampleRate, channels,
+    LOGI("Opened natively: %d Hz, %d ch, %d bit, format %d, %lld ms", sampleRate, channels,
          bitDepth, static_cast<int>(f.format), static_cast<long long>(durationUs / 1000));
     return true;
 }

@@ -17,10 +17,28 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(oboe)
 
+# libFLAC (BSD-3-Clause): our FLAC decoder. Library only, no Ogg, linked statically.
+set(BUILD_CXXLIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(INSTALL_MANPAGES OFF CACHE BOOL "" FORCE)
+set(WITH_OGG OFF CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+FetchContent_Declare(
+    flac
+    GIT_REPOSITORY https://github.com/xiph/flac.git
+    GIT_TAG 1.4.3
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(flac)
+
 add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
     core/PlaybackEngine.cpp
     decoders/WavDecoder.cpp
+    decoders/FlacDecoder.cpp
     jni/AudioEngineJniBridge.cpp
     jni/PlaybackEngineJni.cpp
 )
@@ -52,6 +70,7 @@ find_library(mediandk-lib mediandk)
 target_link_libraries(audiophile_engine
     PRIVATE
     oboe
+    FLAC
     ${log-lib}
     ${android-lib}
     ${vulkan-lib}

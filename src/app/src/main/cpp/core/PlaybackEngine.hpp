@@ -10,7 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-#include "../decoders/WavDecoder.hpp"
+#include "../decoders/AudioDecoder.hpp"
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
 
