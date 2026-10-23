@@ -116,3 +116,9 @@ Every stage switched off must be **bit-exact bypass**, and every stage needs an 
 
 ### I. Phase Gates
 Phases run 0 → 7 as in the master plan. A phase closes only when its written gate test passes on CI and on the S24+. A regression in any earlier test blocks the next merge.
+
+### J. UI Direction (chosen 2026-10-23)
+* **Look:** Obsidian Gold with Tube Amber warmth. Near-black surfaces (`#050507` / `#0D0D11`), champagne-gold accents (`#D9B26A`), Tube Amber (`#FFAB3D`) for the play button, live readouts and filament glow, soft green only for "bit-exact". Titles in a serif face, readouts in monospace. Brushed Steel is not used.
+* **Shell:** five tabs in the order Playing, Library, Path, DSP, Output, matching the approved mock ("Hi-Res Player Mock").
+* **Honesty rules for the UI:** every number on screen comes from the engine. No simulated meters, no fake tracks. Controls whose feature does not exist yet (USB exclusive driver, level meters) are labelled as not built, never shown as working.
+* **Ownership note:** `ui/` is normally Gemini's. The user directed the first build of this shell to Claude on 2026-10-23; commits use the `[Claude-UI]` prefix. Gemini owns later UI changes.

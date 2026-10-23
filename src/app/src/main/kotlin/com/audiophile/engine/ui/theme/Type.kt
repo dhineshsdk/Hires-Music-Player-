@@ -56,3 +56,6 @@ val AudiophileTypography = Typography(
         color = TextTertiary
     )
 )
+
+/** Serif used for titles, in the spirit of the Obsidian Gold look (system serif until a font is bundled). */
+val DisplayFamily: FontFamily = FontFamily.Serif

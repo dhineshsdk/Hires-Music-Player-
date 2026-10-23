@@ -26,7 +26,9 @@ import androidx.core.content.ContextCompat
 import com.audiophile.engine.library.LibraryScreen
 import com.audiophile.engine.state.AudioEngineStateRepository
 import com.audiophile.engine.ui.DspRackScreen
-import com.audiophile.engine.ui.NowPlayingScreen
+import com.audiophile.engine.ui.OutputHeader
+import com.audiophile.engine.ui.PathScreen
+import com.audiophile.engine.ui.PlayingScreen
 import com.audiophile.engine.ui.theme.*
 
 /**
@@ -85,10 +87,11 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class NavigationTab(val title: String) {
+    NOW_PLAYING("PLAYING"),
     LIBRARY("LIBRARY"),
-    NOW_PLAYING("NOW PLAYING"),
-    DSP_RACK("DSP RACK"),
-    HARDWARE("HARDWARE")
+    SIGNAL_PATH("PATH"),
+    DSP_RACK("DSP"),
+    OUTPUT("OUTPUT")
 }
 
 @Composable
@@ -115,7 +118,7 @@ fun MainAppScaffold(
                 ExtendedFloatingActionButton(
                     onClick = onOpenFiles,
                     containerColor = EmberOrange,
-                    contentColor = TextPrimary
+                    contentColor = Color(0xFF1A0E03)
                 ) {
                     Text(text = "OPEN FILES", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 }
@@ -134,10 +137,11 @@ fun MainAppScaffold(
                         icon = {
                             Text(
                                 text = when (tab) {
-                                    NavigationTab.LIBRARY -> "♫"
                                     NavigationTab.NOW_PLAYING -> "▶"
-                                    NavigationTab.DSP_RACK -> "🎛"
-                                    NavigationTab.HARDWARE -> "🔌"
+                                    NavigationTab.LIBRARY -> "♫"
+                                    NavigationTab.SIGNAL_PATH -> "◉"
+                                    NavigationTab.DSP_RACK -> "≡"
+                                    NavigationTab.OUTPUT -> "◆"
                                 },
                                 fontSize = 16.sp,
                                 color = if (isSelected) EmberOrange else TextTertiary
@@ -179,19 +183,20 @@ fun MainAppScaffold(
                     )
                 }
                 NavigationTab.NOW_PLAYING -> {
-                    NowPlayingScreen(
+                    PlayingScreen(
                         track = track,
-                        metrics = metrics,
-                        telemetry = telemetry,
                         signalPath = signalPath,
-                        connectedDevice = connectedDevice,
                         outputMode = outputMode,
+                        connectedDevice = connectedDevice,
                         onPlayPauseToggle = { stateRepository.togglePlayPause() },
+                        onPrevious = { stateRepository.skipToPrevious() },
+                        onNext = { stateRepository.skipToNext() },
                         onSeekTo = { stateRepository.seekTo(it) },
-                        onOutputModeChange = { stateRepository.setOutputMode(it) },
-                        onNavigateToDspRack = { selectedTab = NavigationTab.DSP_RACK },
-                        onToggleFakeHiRes = { stateRepository.toggleFakeHiResSimulation() }
+                        onOpenPath = { selectedTab = NavigationTab.SIGNAL_PATH }
                     )
+                }
+                NavigationTab.SIGNAL_PATH -> {
+                    PathScreen(signalPath = signalPath)
                 }
                 NavigationTab.DSP_RACK -> {
                     DspRackScreen(
@@ -209,11 +214,21 @@ fun MainAppScaffold(
                         }
                     )
                 }
-                NavigationTab.HARDWARE -> {
-                    HardwareProfilesScreen(
-                        database = stateRepository.hardwareDatabase,
-                        activeConnectedDevice = connectedDevice
-                    )
+                NavigationTab.OUTPUT -> {
+                    Column(Modifier.fillMaxSize()) {
+                        OutputHeader(
+                            track = track,
+                            outputMode = outputMode,
+                            connectedDevice = connectedDevice,
+                            telemetry = telemetry,
+                            onOutputModeChange = { stateRepository.setOutputMode(it) }
+                        )
+                        HardwareProfilesScreen(
+                            database = stateRepository.hardwareDatabase,
+                            activeConnectedDevice = connectedDevice,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
