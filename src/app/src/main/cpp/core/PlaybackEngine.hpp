@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include "../decoders/WavDecoder.hpp"
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
 
@@ -30,9 +31,17 @@ struct MediaSource {
     bool rawPassthrough{false};  // extractor already outputs PCM; decoder just passes it on
     bool encodingVerified{false};  // pcmEncoding confirmed against the decoded bytes
 
+    // Our own decoder, used instead of extractor + codec when it recognises the file.
+    // It states the exact sample format, so nothing is probed or guessed.
+    std::unique_ptr<Decoders::FdSource> nativeSource;
+    std::unique_ptr<Decoders::AudioDecoder> native;
+    std::unique_ptr<uint8_t[]> nativeBuffer;
+    size_t nativeFrames{0};  // capacity of nativeBuffer in frames
+
     // Takes ownership of fd (closed on failure too). Returns nullptr if no decodable audio track.
     static std::unique_ptr<MediaSource> Open(int fd);
     void Rewind();
+    bool OpenNative(int64_t fileSize);  // true if our own decoder took the file
     ~MediaSource();
 };
 
@@ -103,6 +112,7 @@ private:
     void StopDecoder();
     void DecoderLoop();
     bool DecodeStep();
+    bool DecodeNativeStep(MediaSource& src);
     bool SwapToNext();
     void WriteToRing(const float* interleaved, size_t frames);
     void SetPlayingInfo(const MediaSource& source);

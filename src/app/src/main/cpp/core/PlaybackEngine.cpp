@@ -48,6 +48,8 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
         LOGE("fstat failed");
         return nullptr;
     }
+    if (source->OpenNative(st.st_size)) return source;
+
     source->extractor = AMediaExtractor_new();
     if (AMediaExtractor_setDataSourceFd(source->extractor, fd, 0, st.st_size) != AMEDIA_OK) {
         LOGE("setDataSourceFd failed");
@@ -122,7 +124,38 @@ std::unique_ptr<MediaSource> MediaSource::Open(int fd) {
     return source;
 }
 
+bool MediaSource::OpenNative(int64_t fileSize) {
+    auto source = std::make_unique<Decoders::FdSource>(fd, fileSize);
+    auto decoder = std::make_unique<Decoders::WavDecoder>();
+    if (decoder->Open(*source) != Decoders::DecodeError::None) return false;
+
+    const Decoders::StreamFormat& f = decoder->Format();
+    sampleRate = static_cast<int32_t>(f.sampleRate);
+    channels = decodedChannels = f.channels;
+    bitDepth = f.validBits;
+    durationUs = static_cast<int64_t>(f.totalFrames * 1000000ull / f.sampleRate);
+    switch (f.format) {
+        case Decoders::SampleFormat::Int24: pcmEncoding = kEncodingPcm24Packed; break;
+        case Decoders::SampleFormat::Int32: pcmEncoding = kEncodingPcm32; break;
+        case Decoders::SampleFormat::Float32:
+        case Decoders::SampleFormat::Float64: pcmEncoding = kEncodingPcmFloat; break;
+        default: pcmEncoding = kEncodingPcm16; break;
+    }
+    nativeFrames = 4096;
+    nativeBuffer = std::make_unique<uint8_t[]>(nativeFrames * f.BytesPerFrame());
+    nativeSource = std::move(source);
+    native = std::move(decoder);
+    encodingVerified = true;  // the decoder stated the format; no probe
+    LOGI("Opened WAV natively: %d Hz, %d ch, %d bit, format %d, %lld ms", sampleRate, channels,
+         bitDepth, static_cast<int>(f.format), static_cast<long long>(durationUs / 1000));
+    return true;
+}
+
 void MediaSource::Rewind() {
+    if (native) {
+        native->SeekToFrame(0);
+        return;
+    }
     AMediaExtractor_seekTo(extractor, 0, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
     AMediaCodec_flush(codec);
     inputDone = false;
@@ -299,12 +332,19 @@ void PlaybackEngine::SeekTo(int64_t positionMs) {
 
     positionMs = std::max<int64_t>(positionMs, 0);
     if (GetDurationMs() > 0) positionMs = std::min(positionMs, GetDurationMs());
-    AMediaExtractor_seekTo(current_->extractor, positionMs * 1000, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
-    AMediaCodec_flush(current_->codec);
-    current_->inputDone = false;
-    // FLAC and PCM seek to the exact frame; compressed formats land on the nearest sync sample.
-    int64_t landedUs = AMediaExtractor_getSampleTime(current_->extractor);
-    if (landedUs < 0) landedUs = positionMs * 1000;
+    int64_t landedUs;
+    if (current_->native) {
+        const uint64_t frame = static_cast<uint64_t>(positionMs) * current_->sampleRate / 1000;
+        current_->native->SeekToFrame(frame);
+        landedUs = static_cast<int64_t>(current_->native->PositionFrames() * 1000000ull / current_->sampleRate);
+    } else {
+        AMediaExtractor_seekTo(current_->extractor, positionMs * 1000, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
+        AMediaCodec_flush(current_->codec);
+        current_->inputDone = false;
+        // FLAC and PCM seek to the exact frame; compressed formats land on the nearest sync sample.
+        landedUs = AMediaExtractor_getSampleTime(current_->extractor);
+        if (landedUs < 0) landedUs = positionMs * 1000;
+    }
 
     ring_->Clear();
     eq_.RequestReset();
@@ -414,6 +454,7 @@ bool PlaybackEngine::SwapToNext() {
 // Feeds one input buffer and drains one output buffer. Returns false at end of stream or error.
 bool PlaybackEngine::DecodeStep() {
     MediaSource& src = *current_;
+    if (src.native) return DecodeNativeStep(src);
     if (!src.inputDone) {
         const ssize_t inIndex = AMediaCodec_dequeueInputBuffer(src.codec, kCodecTimeoutUs);
         if (inIndex >= 0) {
@@ -517,6 +558,60 @@ bool PlaybackEngine::DecodeStep() {
     const bool eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
     AMediaCodec_releaseOutputBuffer(src.codec, outIndex, false);
     return !eos;
+}
+
+// One block from our own decoder: exact integer or float samples in, float stereo out.
+bool PlaybackEngine::DecodeNativeStep(MediaSource& src) {
+    const Decoders::StreamFormat& f = src.native->Format();
+    const size_t frames = src.native->ReadFrames(src.nativeBuffer.get(), src.nativeFrames);
+    if (frames == 0) return false;
+
+    const size_t needed = frames * kOutputChannels;
+    if (scratchFloats_ < needed) {
+        scratch_ = std::make_unique<float[]>(needed);
+        scratchFloats_ = needed;
+    }
+    const size_t bps = Decoders::BytesPerSample(f.format);
+    const size_t chCount = f.channels;
+    const uint8_t* base = src.nativeBuffer.get();
+    for (size_t i = 0; i < frames; ++i) {
+        for (int32_t c = 0; c < kOutputChannels; ++c) {
+            const size_t ch = std::min<size_t>(static_cast<size_t>(c), chCount - 1);
+            const uint8_t* p = base + (i * chCount + ch) * bps;
+            float v;
+            switch (f.format) {
+                case Decoders::SampleFormat::Int24: {
+                    const int32_t s = static_cast<int32_t>(
+                        (static_cast<uint32_t>(p[0]) << 8) | (static_cast<uint32_t>(p[1]) << 16) |
+                        (static_cast<uint32_t>(p[2]) << 24)) >> 8;
+                    v = static_cast<float>(s) / 8388608.0f;
+                    break;
+                }
+                case Decoders::SampleFormat::Int32: {
+                    int32_t s;
+                    std::memcpy(&s, p, 4);
+                    v = static_cast<float>(static_cast<double>(s) / 2147483648.0);
+                    break;
+                }
+                case Decoders::SampleFormat::Float32: std::memcpy(&v, p, 4); break;
+                case Decoders::SampleFormat::Float64: {
+                    double d;
+                    std::memcpy(&d, p, 8);
+                    v = static_cast<float>(d);
+                    break;
+                }
+                default: {
+                    int16_t s;
+                    std::memcpy(&s, p, 2);
+                    v = static_cast<float>(s) / 32768.0f;
+                    break;
+                }
+            }
+            scratch_[i * kOutputChannels + c] = v;
+        }
+    }
+    WriteToRing(scratch_.get(), frames);
+    return true;
 }
 
 void PlaybackEngine::WriteToRing(const float* interleaved, size_t frames) {
