@@ -20,6 +20,7 @@ FetchContent_MakeAvailable(oboe)
 add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
     core/PlaybackEngine.cpp
+    decoders/WavDecoder.cpp
     jni/AudioEngineJniBridge.cpp
     jni/PlaybackEngineJni.cpp
 )

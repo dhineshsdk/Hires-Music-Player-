@@ -30,6 +30,8 @@ jobs:
         run: |
           g++ -std=c++20 -Wall -Wextra -Werror -I../../main/cpp/core pcm_encoding_test.cpp -o pcm_encoding_test
           ./pcm_encoding_test
+          g++ -std=c++20 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders wav_decoder_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o wav_decoder_test
+          ./wav_decoder_test
 
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
