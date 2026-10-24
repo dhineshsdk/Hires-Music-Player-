@@ -113,11 +113,14 @@ data class BiquadBand(
 }
 
 /**
- * Vacuum Tube Model options matching AudiophileDspPipeline.hpp
+ * Vacuum Tube Model options matching AudiophileDspPipeline.hpp and IDEAS_CATALOG.md
  */
 enum class TubeModelType(val displayName: String, val description: String) {
     TRIODE_12AX7("12AX7 High-Mu Triode", "Warm, 2nd-harmonic dominant compression with silky top end"),
-    PENTODE_EL34("EL34 Power Pentode", "Punchy 3rd-harmonic dynamic saturation with high headroom")
+    TRIODE_6SN7("6SN7 Dual Triode", "Octal-base vintage valve, wide holographic soundstage and open midrange"),
+    TRIODE_300B("300B Directly Heated Triode", "Lush vocal presence with expansive three-dimensional depth"),
+    PENTODE_EL34("EL34 Power Pentode", "Punchy 3rd-harmonic dynamic saturation with high headroom"),
+    TETRODE_KT88("KT88 Beam Power Tetrode", "High headroom, ultra-fast transients and visceral low-end impact")
 }
 
 /**
@@ -138,45 +141,87 @@ enum class DcPhaseType(val code: Int, val displayName: String, val frequencyHz: 
 }
 
 /**
- * Master state representing all modules in the 64-bit studio DSP rack
+ * Master state representing all modules in the 64-bit studio DSP rack.
+ * Strictly reflects the fixed 8-stage chain from AGENTS.md Section 5.D:
+ * 1. ReplayGain + input headroom
+ * 2. Parametric EQ + headphone/IEM profiles
+ * 3. Convolution (linear; before any nonlinear stage)
+ * 4. Linear styles: phase all-pass, vinyl crosstalk/resonance
+ * 5. One shared oversampled nonlinear block: tube -> tape -> R2R ladder error
+ * 6. Spatial: crossfeed, sub-bass enhancer
+ * 7. ISO 226 loudness compensation
+ * 8. Limiter -> single gain stage -> dither/convert
  */
 data class DspRackState(
-    // 1. Parametric Equalizer
+    // 1. ReplayGain & Input Headroom
+    val replayGainEnabled: Boolean = false,
+    val replayGainPreampDb: Float = -0.50f, // -12dB to +12dB
+
+    // 2. Parametric Equalizer & IEM Profiles
     val peqEnabled: Boolean = true,
     val peqBands: List<BiquadBand> = default10Bands(),
 
-    // 2. 8x Polyphase Oversampled Vacuum Tube Stage
-    val tubeEnabled: Boolean = true,
-    val tubeModel: TubeModelType = TubeModelType.TRIODE_12AX7,
-    val tubeDrive: Float = 1.25f, // 0.1x to 5.0x
-    val transformerHysteresis: Boolean = true,
+    // 3. Convolution FIR Module
+    val convolutionEnabled: Boolean = false,
+    val impulseResponseName: String = "None (Bypassed)",
 
-    // 3. Virtual R2R NOS DAC Simulator
-    val r2rEnabled: Boolean = false,
-    val r2rMismatchSigma: Float = 0.0015f, // 0.01% to 1.0% Gaussian resistor tolerance
-    val r2rSincCompensation: Boolean = true,
-
-    // 4. Sony DC Phase Linearizer
+    // 4. Linear Acoustic Styles & Phase
     val dcPhaseEnabled: Boolean = true,
     val dcPhasePreset: DcPhaseType = DcPhaseType.TYPE_A_STANDARD,
-
-    // 5. Sony Vinyl Processor
     val vinylEnabled: Boolean = false,
     val vinylTonearmResonance: Float = 1.5f, // 0.0 to 3.0
     val vinylCrosstalkDb: Float = -30.0f, // -40dB to -20dB
     val vinylSurfaceNoise: Float = 0.0004f, // 0.0001 to 0.0020
+    val vinylPlatterRumble: Float = 0.5f,
 
-    // 6. ISO 226:2023 Dynamic Equal-Loudness
+    // 5. Shared Oversampled Nonlinear Block (Tube -> Tape -> R2R)
+    val tubeEnabled: Boolean = true,
+    val tubeModel: TubeModelType = TubeModelType.TRIODE_12AX7,
+    val tubeDrive: Float = 1.25f, // 0.1x to 5.0x
+    val transformerHysteresis: Boolean = true,
+    val tapeEnabled: Boolean = false,
+    val tapeSaturation: Float = 1.0f, // 0.1x to 3.0x
+    val r2rEnabled: Boolean = false,
+    val r2rMismatchSigma: Float = 0.0015f, // 0.01% to 1.0% Gaussian resistor tolerance
+    val r2rSincCompensation: Boolean = true,
+
+    // 6. Spatial (Crossfeed & Sub-Bass Enhancer)
+    val crossfeedEnabled: Boolean = false,
+    val virtualBassEnabled: Boolean = true,
+    val virtualBassAmount: Float = 1.1f, // 0.0 to 2.0
+
+    // 7. ISO 226:2023 Dynamic Equal-Loudness
     val iso226Enabled: Boolean = true,
     val volumeAttenuationDb: Float = -18.0f, // -60dB to 0dB
 
-    // 7. Linkwitz-Riley 4th Order Virtual Sub-Bass
-    val virtualBassEnabled: Boolean = true,
-    val virtualBassAmount: Float = 1.1f, // 0.0 to 2.0
+    // 8. Limiter & Dither Stage
+    val limiterEnabled: Boolean = true,
 
     // Master DSP Bypass
     val isMasterBypassed: Boolean = false
 ) {
+    /**
+     * Determines whether any DSP stage is actively altering the audio stream.
+     * When false or master bypassed, the engine remains in bit-exact bypass without float promotion.
+     */
+    val isAnyStageActive: Boolean
+        get() {
+            if (isMasterBypassed) return false
+            val peqActive = peqEnabled && peqBands.any { it.isEnabled && abs(it.gainDb) >= 0.01f }
+            val dcPhaseActive = dcPhaseEnabled && dcPhasePreset != DcPhaseType.OFF
+            val tubeActive = tubeEnabled
+            val tapeActive = tapeEnabled
+            val r2rActive = r2rEnabled
+            val vinylActive = vinylEnabled
+            val convActive = convolutionEnabled
+            val bassActive = virtualBassEnabled && virtualBassAmount > 0.01f
+            val crossActive = crossfeedEnabled
+            val isoActive = iso226Enabled && abs(volumeAttenuationDb) > 0.01f
+            val rgActive = replayGainEnabled && abs(replayGainPreampDb) > 0.01f
+            return peqActive || dcPhaseActive || tubeActive || tapeActive || r2rActive ||
+                   vinylActive || convActive || bassActive || crossActive || isoActive || rgActive
+        }
+
     /**
      * Computes the aggregated magnitude curve in dB for all 10 bands at evalFreqHz
      */

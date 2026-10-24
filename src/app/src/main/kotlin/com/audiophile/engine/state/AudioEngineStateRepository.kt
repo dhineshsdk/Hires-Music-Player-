@@ -16,6 +16,7 @@ import com.audiophile.engine.bluetooth.BluetoothTelemetryManager
 import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.hardware.HardwareProfileDatabase
 import com.audiophile.engine.hardware.UsbDeviceManagerBridge
+import com.audiophile.engine.hardware.UsbDeviceProfile
 import com.audiophile.engine.library.LibraryTrack
 import com.audiophile.engine.library.MusicLibrary
 import com.audiophile.engine.model.*
@@ -88,13 +89,14 @@ class AudioEngineStateRepository private constructor(context: Context) {
         _outputMode,
         outputHardware
     ) { track, metrics, dsp, mode, (bt, usb) ->
+        val activeDacName = usb?.profile?.deviceName ?: PlaybackHolder.player?.route?.value?.deviceName
         SignalPathState.buildPath(
             track = track,
             metrics = metrics,
             dsp = dsp,
             outputMode = mode,
             btTelemetry = bt,
-            connectedDacName = usb?.profile?.deviceName
+            connectedDacName = activeDacName
         )
     }.stateIn(scope, SharingStarted.Eagerly, SignalPathState())
 
@@ -129,6 +131,26 @@ class AudioEngineStateRepository private constructor(context: Context) {
                 it.addListener(controllerListener)
                 PlaybackHolder.player?.setDsp(_dspRackState.value)
                 refreshTrackMetadata()
+
+                // Reactively observe native player route updates (Android 14 bit-perfect negotiation)
+                PlaybackHolder.player?.route?.let { routeFlow ->
+                    scope.launch {
+                        routeFlow.collect { route ->
+                            _outputMode.value = if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
+                                                else OutputMode.ModeA_StandardAndroid
+                            refreshTrackMetadata()
+                        }
+                    }
+                }
+
+                // Reactively observe engine format changes (sample rate & bit depth switching)
+                PlaybackHolder.player?.engineFormat?.let { formatFlow ->
+                    scope.launch {
+                        formatFlow.collect {
+                            refreshTrackMetadata()
+                        }
+                    }
+                }
             }
         }, ContextCompat.getMainExecutor(appContext))
     }
@@ -237,7 +259,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
         val newState = transform(_dspRackState.value)
         _dspRackState.value = newState
         PlaybackHolder.player?.setDsp(newState)
-        // If USB DAC connected, update in bridge
+        // If USB DAC connected, update in bridge and persist in database
         usbBridge.saveCurrentPreset(newState)
     }
 
@@ -260,6 +282,36 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
     fun savePresetForActiveDevice() {
         usbBridge.saveCurrentPreset(_dspRackState.value)
+    }
+
+    /**
+     * Loads and activates a saved DSP rack preset for a given device profile.
+     */
+    fun loadPresetForProfile(profile: UsbDeviceProfile) {
+        val preset = hardwareDatabase.getPresetForDevice(profile)
+        _dspRackState.value = preset
+        PlaybackHolder.player?.setDsp(preset)
+        val activeUsb = usbBridge.connectedDevice.value
+        if (activeUsb?.profile?.profileId == profile.profileId) {
+            usbBridge.saveCurrentPreset(preset)
+        }
+    }
+
+    /**
+     * Resets the active device preset to its hardware factory default.
+     */
+    fun resetActiveDevicePreset() {
+        val activeUsb = usbBridge.connectedDevice.value
+        val defaultPreset = if (activeUsb != null) {
+            hardwareDatabase.resetPresetForDevice(activeUsb.profile)
+        } else {
+            HardwareProfileDatabase.PROFILES.first().defaultDspPreset
+        }
+        _dspRackState.value = defaultPreset
+        PlaybackHolder.player?.setDsp(defaultPreset)
+        if (activeUsb != null) {
+            usbBridge.saveCurrentPreset(defaultPreset)
+        }
     }
 
     companion object {
