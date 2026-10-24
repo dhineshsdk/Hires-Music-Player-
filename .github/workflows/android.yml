@@ -46,6 +46,8 @@ jobs:
           ./flac_decoder_test h.flac h.raw 3 24
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders dsd_decoder_test.cpp ../../main/cpp/decoders/DsdDecoder.cpp -o dsd_decoder_test
           ./dsd_decoder_test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders -I../../main/cpp/core null_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o null_test
+          ./null_test
 
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
