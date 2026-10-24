@@ -48,6 +48,8 @@ jobs:
           ./dsd_decoder_test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders -I../../main/cpp/core null_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o null_test
           ./null_test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
+          ./dsp_suite_test
 
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug

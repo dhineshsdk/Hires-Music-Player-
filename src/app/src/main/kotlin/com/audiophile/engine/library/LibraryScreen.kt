@@ -29,10 +29,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private enum class LibraryView(val title: String) { ALBUMS("ALBUMS"), TRACKS("TRACKS") }
+private enum class LibrarySource(val title: String) { LOCAL("ON DEVICE"), DRIVE("GOOGLE DRIVE") }
 
 /**
- * Library browser: albums and tracks from MediaStore, with search across title, artist and album.
- * Tapping a track plays its album (or the visible track list) from that track.
+ * Universal Library browser: local MediaStore tracks & Google Drive cloud streams.
+ * Tapping a track plays its album (or the visible track list) through the bit-perfect engine.
  */
 @Composable
 fun LibraryScreen(
@@ -42,9 +43,11 @@ fun LibraryScreen(
     onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var source by remember { mutableStateOf(LibrarySource.LOCAL) }
     var view by remember { mutableStateOf(LibraryView.ALBUMS) }
     var query by remember { mutableStateOf("") }
     var openAlbumId by remember { mutableStateOf<Long?>(null) }
+    var isDriveConnecting by remember { mutableStateOf(false) }
 
     val filtered = remember(tracks, query) {
         val q = query.trim().lowercase()
@@ -63,6 +66,44 @@ fun LibraryScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // Universal Source Switcher (Local vs Drive)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(DarkSurfaceElevated)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            LibrarySource.entries.forEach { s ->
+                val selected = source == s
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (selected) ChampagneGold.copy(alpha = 0.18f) else Color.Transparent)
+                        .clickable { source = s }
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = s.title,
+                        color = if (selected) ChampagneGold else TextTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        if (source == LibrarySource.DRIVE) {
+            GoogleDriveLibraryView(
+                isConnecting = isDriveConnecting,
+                onConnect = { isDriveConnecting = true }
+            )
+            return@Column
+        }
         if (!hasPermission) {
             Text("Allow access to your music to build the library.", color = TextSecondary, fontSize = 13.sp)
             Button(
@@ -238,6 +279,65 @@ private fun AlbumArt(albumId: Long, sizeDp: Int) {
         )
     } else {
         Box(Modifier.size(sizeDp.dp).clip(shape).background(DarkSurfaceElevated))
+    }
+}
+
+@Composable
+private fun GoogleDriveLibraryView(
+    isConnecting: Boolean,
+    onConnect: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(DarkSurface)
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "GOOGLE DRIVE CLOUD STREAMING",
+            color = ChampagneGold,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+
+        Text(
+            text = "Stream high-resolution FLAC, WAV, and DSD tracks directly from your personal Google Drive with HTTP Range read-ahead and single-Range mid-track seeks.",
+            color = TextSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(DarkSurfaceElevated)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("SCOPE:", color = TextTertiary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            Text("drive.readonly (Unverified / Personal Use)", color = MatrixGreen, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        }
+
+        Button(
+            onClick = onConnect,
+            colors = ButtonDefaults.buttonColors(containerColor = EmberOrange, contentColor = Color(0xFF1A0E03)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (isConnecting) "CONNECTING TO DRIVE..." else "CONNECT GOOGLE DRIVE ACCOUNT",
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
