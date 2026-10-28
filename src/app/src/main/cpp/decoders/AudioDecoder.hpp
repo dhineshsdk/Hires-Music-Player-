@@ -56,6 +56,9 @@ public:
     virtual size_t ReadFrames(void* dst, size_t maxFrames) noexcept = 0;
     virtual bool SeekToFrame(uint64_t frame) noexcept = 0;
     virtual uint64_t PositionFrames() const noexcept = 0;
+    // Telemetry: what decoded this stream. Container is an HRC_CONTAINER_* value from hires_core.h.
+    virtual const char* Name() const noexcept { return "unknown"; }
+    virtual int32_t Container() const noexcept { return 0; }
 };
 
 } // namespace Audiophile::Decoders
