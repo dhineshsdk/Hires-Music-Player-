@@ -10,7 +10,43 @@ permissions:
   contents: write
 
 jobs:
+  # Builds the portable core and runs the decoder, sample-format, null-test and DSP suites on a plain Linux host.
+  # No phone is needed.
+  host-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host tools and libFLAC
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build libflac-dev ffmpeg
+
+      - name: Configure host build
+        run: cmake -S tests/host -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build host tests
+        run: cmake --build build/host --parallel
+
+      - name: Run host tests
+        run: ctest --test-dir build/host --output-on-failure
+
+      # C API contract and the engine end to end (ASan+UBSan, then TSan), with real files
+      # decoded by libFLAC and checked against the ffmpeg CLI.
+      - name: Run engine host tests
+        run: src/app/src/test/cpp/run_engine_host_tests.sh "$RUNNER_TEMP/engine"
+
+  # Fails on any new forbidden call (heap, mutex, exception, SCHED_FIFO/RR, mlock) in core/, drivers/ or dsp/.
+  rt-safety-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan audio path for real-time violations
+        run: tools/rt_safety_scan.sh
+
   assemble-debug:
+    needs: [host-core, rt-safety-scan]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,32 +61,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Host tests (sample-format rules)
-        working-directory: src/app/src/test/cpp
-        run: |
-          g++ -std=c++20 -Wall -Wextra -Werror -I../../main/cpp/core pcm_encoding_test.cpp -o pcm_encoding_test
-          ./pcm_encoding_test
-          g++ -std=c++20 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders wav_decoder_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o wav_decoder_test
-          ./wav_decoder_test
-          sudo apt-get update -qq && sudo apt-get install -y -qq libflac-dev ffmpeg
-          g++ -std=c++20 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders flac_decoder_test.cpp ../../main/cpp/decoders/FlacDecoder.cpp -lFLAC -o flac_decoder_test
-          # Reference PCM comes from ffmpeg's own FLAC decoder, so the check is independent of libFLAC.
-          ffmpeg -v error -y -f lavfi -i "anoisesrc=d=4:c=pink:r=44100:a=0.7:seed=7" -af aformat=channel_layouts=stereo -sample_fmt s16 -c:a flac t16.flac
-          ffmpeg -v error -y -i t16.flac -f s16le -c:a pcm_s16le t16.raw
-          ffmpeg -v error -y -f lavfi -i "anoisesrc=d=4:c=pink:r=96000:a=0.7:seed=7" -af aformat=channel_layouts=stereo -sample_fmt s32 -c:a flac -bits_per_raw_sample 24 t24.flac
-          ffmpeg -v error -y -i t24.flac -f s24le -c:a pcm_s24le t24.raw
-          ffmpeg -v error -y -f lavfi -i "anoisesrc=d=3:c=white:r=192000:a=0.9:seed=3" -af aformat=channel_layouts=stereo -sample_fmt s32 -c:a flac -bits_per_raw_sample 24 h.flac
-          ffmpeg -v error -y -i h.flac -f s24le -c:a pcm_s24le h.raw
-          ./flac_decoder_test t16.flac t16.raw 2 16
-          ./flac_decoder_test t24.flac t24.raw 3 24
-          ./flac_decoder_test h.flac h.raw 3 24
-          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders dsd_decoder_test.cpp ../../main/cpp/decoders/DsdDecoder.cpp -o dsd_decoder_test
-          ./dsd_decoder_test
-          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders -I../../main/cpp/core null_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o null_test
-          ./null_test
-          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
-          ./dsp_suite_test
-
+      # NDK 26.3.11579264 is pinned in src/app/build.gradle.kts; AGP installs it if the runner lacks it.
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
 
