@@ -51,6 +51,22 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
           ./dsp_suite_test
 
+      # Without these shared libraries the APK has no ALAC/APE/WavPack/MP3/AAC/Opus/Vorbis decoding
+      # (Android ships no ALAC decoder). FFmpeg is LGPL and linked dynamically; the build is cached.
+      - name: Cache FFmpeg (LGPL shared libraries)
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: src/app/src/main/cpp/third_party/ffmpeg/out
+          key: ffmpeg-n7.1.1-arm64-${{ hashFiles('src/app/src/main/cpp/third_party/ffmpeg/build_android.sh') }}
+
+      - name: Build FFmpeg for Android
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264"
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264" app/src/main/cpp/third_party/ffmpeg/build_android.sh
+
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
 
