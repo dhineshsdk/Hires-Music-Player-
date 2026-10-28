@@ -50,7 +50,12 @@ class BitPerfectRouter(private val audioManager: AudioManager) {
             return SHARED
         }
 
-        val candidates = audioManager.getSupportedMixerAttributes(device).filter { mixer ->
+        val supported = audioManager.getSupportedMixerAttributes(device)
+        supported.forEach { mixer ->
+            Log.d(TAG, "Mixer on ${device.productName}: ${mixer.format.sampleRate} Hz, encoding ${mixer.format.encoding}, " +
+                "mask ${mixer.format.channelMask}, behavior ${mixer.mixerBehavior}")
+        }
+        val candidates = supported.filter { mixer ->
             mixer.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
                 mixer.format.sampleRate == sampleRateHz &&
                 mixer.format.channelMask == AudioFormat.CHANNEL_OUT_STEREO &&
@@ -83,7 +88,12 @@ class BitPerfectRouter(private val audioManager: AudioManager) {
 
     companion object {
         private const val TAG = "BitPerfectRouter"
-        val SHARED = Route(AudioFormat.ENCODING_PCM_FLOAT, false, null)
+        /**
+         * The shared mixer. ENCODING_DEFAULT lets the engine open the stream in the track's own
+         * format (16, 24 or 32-bit integer, float only for float sources), so nothing is converted
+         * on our side; Android's mixer may still resample or mix.
+         */
+        val SHARED = Route(AudioFormat.ENCODING_DEFAULT, false, null)
 
         private fun containerBits(encoding: Int): Int = when (encoding) {
             AudioFormat.ENCODING_PCM_16BIT -> 16
