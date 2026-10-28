@@ -1,7 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstddef>
-#include <new>
+#include <memory>
 #include <span>
 #include <algorithm>
 
@@ -13,14 +13,11 @@ class LockFreeAudioRingBuffer {
     static constexpr size_t CACHE_LINE_SIZE = 64;
 
 public:
-    LockFreeAudioRingBuffer() : tail_(0), head_(0) {
-        ring_buffer_ = static_cast<T*>(::operator new[](
-            sizeof(T) * Capacity, std::align_val_t{alignof(T)}));
-    }
+    // Allocates once, on the thread that creates the ring (never the audio thread).
+    LockFreeAudioRingBuffer() : tail_(0), head_(0), storage_(std::make_unique<T[]>(Capacity)), ring_buffer_(storage_.get()) {}
 
-    ~LockFreeAudioRingBuffer() {
-        ::operator delete[](ring_buffer_, std::align_val_t{alignof(T)});
-    }
+    LockFreeAudioRingBuffer(const LockFreeAudioRingBuffer&) = delete;
+    LockFreeAudioRingBuffer& operator=(const LockFreeAudioRingBuffer&) = delete;
 
     size_t Write(std::span<const T> input) noexcept {
         const size_t tail = tail_.load(std::memory_order_relaxed);
@@ -71,6 +68,7 @@ public:
 private:
     alignas(CACHE_LINE_SIZE) std::atomic<size_t> tail_;
     alignas(CACHE_LINE_SIZE) std::atomic<size_t> head_;
+    std::unique_ptr<T[]> storage_;
     alignas(CACHE_LINE_SIZE) T* ring_buffer_;
 };
 

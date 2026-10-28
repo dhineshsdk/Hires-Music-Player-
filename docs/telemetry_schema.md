@@ -47,11 +47,11 @@ Position in seconds is `position_frames / source.sample_rate`; the UI does the d
 | `sample_rate` | rate the decoder hands out (for DSD: the PCM rate after our decimation) |
 | `dsd_rate` | native DSD bit rate per channel (2 822 400 for DSD64), 0 for PCM files |
 | `channels` | channel count |
-| `container_bits` | bits per sample in the file's container (16, 24, 32) |
+| `container_bits` | bits per sample in the container the decoder hands out (16, 24, 32, 64) |
 | `valid_bits` | bits that carry audio; a 20-bit file in a 24-bit container says 20 |
 | `format` | `HRC_SAMPLE_*` the decoder hands out, stated by the decoder, never guessed |
 | `container` | `HRC_CONTAINER_*` |
-| `decoder_name` | e.g. `libFLAC 1.4.3`, `own WAV/RF64`, `own DSF/DFF`, `MediaCodec fallback` |
+| `decoder_name` | e.g. `libFLAC 1.4.3`, `own WAV`, `own RF64`, `own DSF`, `FFmpeg alac`, `MediaCodec mpeg` |
 
 Produced by the decoder thread when a track opens; changes at a gapless boundary when
 `TRACK_STARTED` fires.
@@ -166,7 +166,23 @@ Discrete things the UI must not miss between two snapshots. Same reader thread.
 
 ## 4. What the engine produces today
 
-The header is a contract; the engine adapter that fills it is the next step (see
-`HANDOFF_Opus_Sonnet.md`). Planned first fill: `SOURCE`, `OUTPUT`, `COUNTERS`, `STAGES`
-(PEQ built, the rest not built) and `RECEIPT`. `LEVELS` and `CLOCK` stay clear until those
-features exist, and Output B returns `HRC_E_NOT_BUILT` until Phase 5.
+| Group | Status |
+|---|---|
+| `SOURCE` | filled for every track: our decoders and FFmpeg state everything; the MediaCodec fallback writes F32 |
+| `STAGES` | PEQ is built (enabled and bypass flags are real); every other stage reports not built |
+| `OUTPUT` | negotiated format, backend, buffer and burst read back from the stream; `latency_ns` is -1 and `device_name` empty for now |
+| `RECEIPT` | real, from hashes taken on the decoder thread and in the audio callback, compared every 16384 frames and at the end of each window |
+| `COUNTERS` | real: ring underflows plus the stream's own xrun count |
+| `LEVELS`, `CLOCK` | not built: the bits stay clear |
+
+`HRC_OUTPUT_STATE_OS_RESAMPLING` is never set yet: Android does not tell us when its shared mixer
+resamples. That is why only `MIXER_BIT_PERFECT` (which rules it out) can lead to `OS_CONFIRMED`.
+Output B returns `HRC_E_NOT_BUILT` until Phase 5.
+
+### How the receipt is taken
+
+The decoder thread hashes each block it decodes; the audio callback hashes the bytes it writes to
+the device, after the final conversion. Both cut their hash at the same frame counts (every 16384
+frames of a window, and at the window's end) and push the value through their own ring. The
+reader compares the pairs. Mono duplicated to stereo, more than two channels, a PEQ that is on, or
+an output narrower than the source all change the bytes, so they show as a mismatch, honestly.

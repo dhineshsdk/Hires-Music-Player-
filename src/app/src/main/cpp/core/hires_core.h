@@ -171,9 +171,12 @@ typedef struct hrc_source {
 HRC_EXPORT hrc_result hrc_open(hrc_engine* engine, const hrc_source* source);
 
 /*
- * Queues the track that follows the current one. Same sample rate, bit depth and channel
- * count: it plays gaplessly in the same stream. Different format: the output reopens in
- * the new format at the boundary. Replaces an earlier queued track.
+ * Queues the track that follows the current one. Same sample rate, sample format and channel
+ * count: it plays gaplessly in the same stream. Different format: when the output follows the
+ * source (hrc_output_config.format HRC_SAMPLE_UNKNOWN) the output reopens in the new format at
+ * the boundary and HRC_EVENT_OUTPUT_REOPENED fires; with a fixed output format playback ends
+ * at the boundary (HRC_EVENT_QUEUE_EMPTY) and the caller opens the next track itself.
+ * Replaces an earlier queued track.
  */
 HRC_EXPORT hrc_result hrc_queue_next(hrc_engine* engine, const hrc_source* source);
 HRC_EXPORT hrc_result hrc_clear_next(hrc_engine* engine);
@@ -207,13 +210,15 @@ typedef int32_t hrc_output_backend;
 #define HRC_BACKEND_USB_EXCLUSIVE   3
 
 /* Bit flags in hrc_output_config.flags */
-#define HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER  0x1u  /* caller set a bit-perfect mixer for this format */
+#define HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER  0x1u  /* caller set a bit-perfect mixer for this format and
+                                                    Android confirmed it; dropped by a reopen that
+                                                    changes the format, so set it again then */
 
 typedef struct hrc_output_config {
     uint32_t struct_size;
     hrc_output_kind kind;
-    hrc_sample_format format;   /* HRC_SAMPLE_UNKNOWN follows the source */
-    uint32_t sample_rate;       /* 0 follows the source */
+    hrc_sample_format format;   /* HRC_SAMPLE_UNKNOWN follows the source (F64 goes out as F32) */
+    uint32_t sample_rate;       /* 0 follows the source; others need the resampler: HRC_E_UNSUPPORTED for now */
     uint32_t flags;             /* HRC_OUTPUT_FLAG_* */
     int32_t usb_fd;             /* Output B: UsbDeviceConnection fd; NOT owned, never closed */
     int32_t usb_interface;      /* Output B: streaming interface number, or -1 */
@@ -260,7 +265,7 @@ typedef struct hrc_source_telemetry {
     uint32_t sample_rate;         /* rate the decoder hands out */
     uint32_t dsd_rate;            /* native DSD bit rate per channel when the file is DSD, else 0 */
     uint16_t channels;
-    uint16_t container_bits;      /* bits per sample in the file's container */
+    uint16_t container_bits;      /* bits per sample in the container the decoder hands out */
     uint16_t valid_bits;          /* bits that carry audio (20-in-24 says 20) */
     uint16_t reserved0;
     hrc_sample_format format;     /* format the decoder hands out */
@@ -376,7 +381,8 @@ typedef int32_t hrc_event_type;
 #define HRC_EVENT_TRACK_STARTED    1  /* listener now hears track_id (gapless or after reopen) */
 #define HRC_EVENT_TRACK_ENDED      2  /* track_id finished; value = frames played */
 #define HRC_EVENT_QUEUE_EMPTY      3  /* playback reached the end with nothing queued */
-#define HRC_EVENT_OUTPUT_REOPENED  4  /* format changed at a boundary; value = new sample rate */
+#define HRC_EVENT_OUTPUT_REOPENED  4  /* format changed at a boundary; value = new sample rate.
+                                         Set the mixer for the new format and call hrc_set_output again */
 #define HRC_EVENT_UNDERRUN         5  /* value = running underrun count */
 #define HRC_EVENT_OUTPUT_LOST      6  /* device unplugged or stream died */
 #define HRC_EVENT_ERROR            7  /* value = hrc_result */

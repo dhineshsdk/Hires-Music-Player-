@@ -37,6 +37,8 @@ FetchContent_MakeAvailable(flac)
 add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
     core/PlaybackEngine.cpp
+    core/OboeOutput.cpp
+    core/HiresCore.cpp
     core/hires_core_abi.c
     decoders/WavDecoder.cpp
     decoders/FlacDecoder.cpp

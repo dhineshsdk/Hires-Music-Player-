@@ -50,6 +50,9 @@ public:
         Publish();
     }
 
+    // Control thread: whether the last published settings change samples (false = bit-exact bypass).
+    bool IsActive() const noexcept { return activeControl_; }
+
     // Any thread. Clears filter memory on the next Process() (after a seek or track open).
     void RequestReset() noexcept { resetRequested_.store(true, std::memory_order_release); }
 
@@ -117,6 +120,7 @@ private:
             }
         }
         c.active = enabled_ && (c.count > 0 || std::abs(preampDb_) >= 0.01);
+        activeControl_ = c.active;
         const uint32_t previous = middle_.exchange(writeSlot_ | kFresh, std::memory_order_acq_rel);
         writeSlot_ = previous & ~kFresh;
     }
@@ -132,6 +136,7 @@ private:
     int bandCount_{0};
     double preampDb_{0.0};
     bool enabled_{false};
+    bool activeControl_{false};
     double sampleRate_{0.0};
     uint32_t writeSlot_{0};
 

@@ -1,5 +1,7 @@
 #pragma once
+#if defined(__aarch64__)
 #include <arm_neon.h>
+#endif
 #include <cstdint>
 #include <span>
 #include "AudioEngineTypes.hpp"
@@ -9,6 +11,9 @@ namespace Audiophile::Core {
 class ForensicStreamAuditor {
 public:
     static AudioForensicMetrics AuditFrame(std::span<const int32_t> pcm_samples, float sample_rate_hz) noexcept {
+#if !defined(__aarch64__)
+        return AuditFrameScalar(pcm_samples, sample_rate_hz);
+#else
         AudioForensicMetrics metrics{};
         const size_t count = pcm_samples.size();
         const int32_t* ptr = pcm_samples.data();
@@ -55,6 +60,35 @@ public:
         metrics.ultrasonic_to_baseband_ratio = (total_energy > 0.0f) ? (ultra_energy / total_energy) : 0.0f;
         metrics.is_fake_upsampled = (sample_rate_hz >= 88200.0f) && (metrics.ultrasonic_to_baseband_ratio < 1e-9f);
 
+        return metrics;
+#endif
+    }
+
+    // Same result as the NEON path, one lane at a time (desktop host builds).
+    static AudioForensicMetrics AuditFrameScalar(std::span<const int32_t> pcm_samples, float sample_rate_hz) noexcept {
+        AudioForensicMetrics metrics{};
+        const size_t count = pcm_samples.size();
+        const int32_t* ptr = pcm_samples.data();
+        uint32_t mask = 0;
+        float energy_total = 0.0f;
+        float energy_ultra = 0.0f;
+        for (size_t i = 0; i + 4 <= count; i += 4) {
+            const bool filtered = i >= 4 && i + 8 <= count;
+            for (size_t k = i; k < i + 4; ++k) {
+                mask |= static_cast<uint32_t>(ptr[k]);
+                const float x = static_cast<float>(ptr[k]);
+                energy_total += x * x;
+                if (filtered) {
+                    const float hp = 0.8f * x - 0.1f * (static_cast<float>(ptr[k - 1]) + static_cast<float>(ptr[k + 1])) -
+                                     0.05f * (static_cast<float>(ptr[k - 2]) + static_cast<float>(ptr[k + 2]));
+                    energy_ultra += hp * hp;
+                }
+            }
+        }
+        metrics.active_bits_mask = mask;
+        metrics.has_true_24bit_dynamics = (mask & 0xFF) != 0;
+        metrics.ultrasonic_to_baseband_ratio = (energy_total > 0.0f) ? (energy_ultra / energy_total) : 0.0f;
+        metrics.is_fake_upsampled = (sample_rate_hz >= 88200.0f) && (metrics.ultrasonic_to_baseband_ratio < 1e-9f);
         return metrics;
     }
 };

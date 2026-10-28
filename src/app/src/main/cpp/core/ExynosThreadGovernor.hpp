@@ -1,7 +1,11 @@
 #pragma once
 #include <cstdint>
 #include <pthread.h>
+#if defined(__ANDROID__)
 #include <android/performance_hint.h>
+#else
+struct APerformanceHintSession;  // ADPF is Android-only; the host build keeps the calls as no-ops
+#endif
 
 namespace Audiophile::Core {
 

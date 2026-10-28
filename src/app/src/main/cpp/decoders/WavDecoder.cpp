@@ -29,6 +29,7 @@ DecodeError WavDecoder::Open(SeekableSource& source) noexcept {
     if (n < 0) return DecodeError::Io;
     if (n < 12) return DecodeError::NotThisFormat;
     const bool rf64 = Tag(head, "RF64");
+    rf64_ = rf64;
     if ((!Tag(head, "RIFF") && !rf64) || !Tag(head + 8, "WAVE")) return DecodeError::NotThisFormat;
 
     const uint64_t fileSize = static_cast<uint64_t>(source.Size());
