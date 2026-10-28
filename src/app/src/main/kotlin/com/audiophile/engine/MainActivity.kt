@@ -65,7 +65,8 @@ class MainActivity : ComponentActivity() {
             AudiophileEngineTheme {
                 MainAppScaffold(
                     stateRepository = stateRepository,
-                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*", "application/octet-stream"))  // DSD files are often octet-stream },
+                    // DSD files are often octet-stream, so audio/* alone hides them.
+                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*", "application/octet-stream")) },
                     hasAudioPermission = hasAudioPermission.value,
                     onRequestAudioPermission = { requestPermissions.launch(arrayOf(audioPermission)) }
                 )
