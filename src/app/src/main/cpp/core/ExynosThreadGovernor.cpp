@@ -1,4 +1,5 @@
 #include "ExynosThreadGovernor.hpp"
+#if defined(__ANDROID__)
 #include <sched.h>
 #include <unistd.h>
 
@@ -46,3 +47,13 @@ void ExynosThreadGovernor::ReportActualWorkDuration(int64_t actual_duration_ns) 
 }
 
 } // namespace Audiophile::Core
+#else  // desktop host: no ADPF, and no cluster layout to pin to
+
+namespace Audiophile::Core {
+ExynosThreadGovernor::~ExynosThreadGovernor() = default;
+void ExynosThreadGovernor::BindCurrentThreadToCluster(int) noexcept {}
+bool ExynosThreadGovernor::InitializeADPF(int64_t) noexcept { return false; }
+void ExynosThreadGovernor::ReportActualWorkDuration(int64_t) noexcept {}
+}  // namespace Audiophile::Core
+
+#endif

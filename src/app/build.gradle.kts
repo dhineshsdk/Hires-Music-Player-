@@ -55,6 +55,9 @@ android {
         compose = true
     }
 
+    // The FFmpeg .so files are imported by CMake, not built by it, so Gradle must package them.
+    sourceSets["main"].jniLibs.srcDir("src/main/cpp/third_party/ffmpeg/out/lib")
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -82,6 +85,9 @@ dependencies {
 
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")  // android.jar's org.json is a stub in unit tests
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
