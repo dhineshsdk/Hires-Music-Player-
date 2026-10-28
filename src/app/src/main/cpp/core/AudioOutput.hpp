@@ -68,6 +68,7 @@ public:
         info.bufferCapacityFrames = 4096;
         info.burstFrames = 256;
         opens_.fetch_add(1, std::memory_order_relaxed);
+        if (request.format == refused_.load(std::memory_order_relaxed)) return false;
         return failOpen_.load(std::memory_order_relaxed) == false;
     }
     bool Start() noexcept override { running_.store(true, std::memory_order_release); return true; }
@@ -101,6 +102,8 @@ public:
     int Opens() const noexcept { return opens_.load(std::memory_order_relaxed); }
     bool Running() const noexcept { return running_.load(std::memory_order_acquire); }
     void FailNextOpens(bool fail) noexcept { failOpen_.store(fail, std::memory_order_relaxed); }
+    // Opens in this sample format fail, like a shared mixer that takes only float.
+    void RefuseFormat(hrc_sample_format format) noexcept { refused_.store(format, std::memory_order_relaxed); }
 
 private:
     OutputRequest request_{};
@@ -108,6 +111,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> inRender_{false};
     std::atomic<bool> failOpen_{false};
+    std::atomic<hrc_sample_format> refused_{HRC_SAMPLE_UNKNOWN - 1};
     std::atomic<int> opens_{0};
 };
 
