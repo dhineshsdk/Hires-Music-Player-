@@ -18,15 +18,16 @@ scan_dirs=(core drivers dsp)
 
 # rule name : extended regex applied to code with comments and strings removed
 # mawk has no \b, so word boundaries are spelled out as "start or non-identifier character".
+# Patterns avoid backslashes: awk -v processes escape sequences, so use [(] for a literal paren.
 w='(^|[^A-Za-z0-9_])'
 e='([^A-Za-z0-9_]|$)'
 rules=(
     "heap-new:${w}new${e}"
-    "heap-malloc:${w}(malloc|calloc|realloc)[[:space:]]*\\("
+    "heap-malloc:${w}(malloc|calloc|realloc)[[:space:]]*[(]"
     'mutex:std::(recursive_|timed_)?mutex|std::(lock_guard|unique_lock|scoped_lock)'
     "exception:${w}throw${e}"
     "sched-fifo-rr:${w}SCHED_(FIFO|RR)${e}"
-    "mlock:${w}mlock(all)?[[:space:]]*\\("
+    "mlock:${w}mlock(all)?[[:space:]]*[(]"
 )
 
 # Prints "relative/path<TAB>rule<TAB>trimmed source line" for every hit.
