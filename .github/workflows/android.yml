@@ -31,6 +31,11 @@ jobs:
       - name: Run host tests
         run: ctest --test-dir build/host --output-on-failure
 
+      # C API contract and the engine end to end (ASan+UBSan, then TSan), with real files
+      # decoded by libFLAC and checked against the ffmpeg CLI.
+      - name: Run engine host tests
+        run: src/app/src/test/cpp/run_engine_host_tests.sh "$RUNNER_TEMP/engine"
+
   # Fails on any new forbidden call (heap, mutex, exception, SCHED_FIFO/RR, mlock) in core/, drivers/ or dsp/.
   rt-safety-scan:
     runs-on: ubuntu-latest
