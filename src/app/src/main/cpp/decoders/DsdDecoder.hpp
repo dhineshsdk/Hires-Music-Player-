@@ -27,6 +27,9 @@ public:
     size_t ReadFrames(void* dst, size_t maxFrames) noexcept override;
     bool SeekToFrame(uint64_t frame) noexcept override;
     uint64_t PositionFrames() const noexcept override { return position_; }
+    const char* Name() const noexcept override { return dsf_ ? "own DSF" : "own DFF"; }
+    int32_t Container() const noexcept override { return dsf_ ? 6 : 7; }  // HRC_CONTAINER_DSF / _DFF
+    uint32_t DsdRate() const noexcept override { return dsdRate_; }
 
     static constexpr size_t kTaps = 256;            // stage 1 (32 bytes of history)
     static constexpr size_t kBytesBack = kTaps / 8;

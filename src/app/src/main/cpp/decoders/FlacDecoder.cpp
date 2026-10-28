@@ -1,5 +1,6 @@
 #include "FlacDecoder.hpp"
 #include <FLAC/stream_decoder.h>
+#include <cstdio>
 #include <cstring>
 
 namespace Audiophile::Decoders {
@@ -124,6 +125,7 @@ FlacDecoder::~FlacDecoder() {
 }
 
 DecodeError FlacDecoder::Open(SeekableSource& source) noexcept {
+    std::snprintf(name_, sizeof(name_), "libFLAC %s", FLAC__VERSION_STRING);
     if (decoder_) {
         FLAC__stream_decoder_delete(Dec(decoder_));
         decoder_ = nullptr;

@@ -16,12 +16,15 @@ public:
     size_t ReadFrames(void* dst, size_t maxFrames) noexcept override;
     bool SeekToFrame(uint64_t frame) noexcept override;
     uint64_t PositionFrames() const noexcept override { return position_; }
+    const char* Name() const noexcept override { return rf64_ ? "own RF64" : "own WAV"; }
+    int32_t Container() const noexcept override { return rf64_ ? 2 : 1; }  // HRC_CONTAINER_RF64 / _WAV
 
 private:
     SeekableSource* source_{nullptr};
     StreamFormat format_{};
     uint64_t dataOffset_{0};
     uint64_t position_{0};
+    bool rf64_{false};
 };
 
 } // namespace Audiophile::Decoders

@@ -22,6 +22,8 @@ public:
     size_t ReadFrames(void* dst, size_t maxFrames) noexcept override;
     bool SeekToFrame(uint64_t frame) noexcept override;
     uint64_t PositionFrames() const noexcept override { return position_; }
+    const char* Name() const noexcept override { return name_; }
+    int32_t Container() const noexcept override { return 5; }  // HRC_CONTAINER_FLAC
 
     // libFLAC callbacks; public only so the C trampolines can reach them.
     struct Callbacks;
@@ -38,6 +40,7 @@ private:
     size_t blockCapacity_{0};            // frames
     size_t blockFrames_{0};
     size_t blockPos_{0};
+    char name_[32] = "libFLAC";
     bool haveInfo_{false};
     bool failed_{false};
 };
