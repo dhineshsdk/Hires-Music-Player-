@@ -418,6 +418,46 @@ void TestFile(const char* path, const char* rawPath, const char* expectDecoder) 
                 static_cast<unsigned>(t.source.valid_bits), t.receipt.grade);
     hrc_engine_destroy(e);
 }
+
+// The legacy JNI path on the shared mixer: ENCODING_DEFAULT makes the output follow the source
+// (integer for integer files, not float), and a mixer that refuses the integer format gets float.
+void TestLegacySharedFollowsSource() {
+    using Audiophile::Core::PlaybackEngine;
+    const Wav a = MakeWav(48000, 2, 24, 30000, 9);
+    char path[] = "/tmp/hrc_legacy_XXXXXX";
+    const int fd = mkstemp(path);
+    Check(fd >= 0 && write(fd, a.file.data(), a.file.size()) == static_cast<ssize_t>(a.file.size()), "temp file");
+    unlink(path);
+    auto output = std::make_unique<ManualOutput>();
+    ManualOutput* out = output.get();
+    {
+        PlaybackEngine engine(std::move(output));
+        engine.SetOutputFormat(1 /* AudioFormat.ENCODING_DEFAULT */, false);
+        Check(engine.Open(fd), "legacy open");
+        Check(out->LastRequest().format == HRC_SAMPLE_S24 && !out->LastRequest().bitPerfect, "shared output opens in the source's 24-bit format");
+        Check(engine.GetOutputEncoding() == 21, "reports ENCODING_PCM_24BIT_PACKED");
+        Sleep(50);
+        engine.Play();
+        std::vector<uint8_t> got;
+        uint8_t buffer[512 * 2 * 4];
+        for (int i = 0; i < 4000 && got.size() < a.pcm.size(); ++i) {
+            if (out->Pull(buffer, 512)) got.insert(got.end(), buffer, buffer + 512 * 6);
+            else Sleep(1);
+        }
+        size_t at = 0;
+        Check(StartsWith(got, a.pcm, at), "shared integer output is the file's own samples");
+
+        const int opens = out->Opens();
+        engine.SetOutputFormat(1, false);
+        Check(out->Opens() == opens, "the same output config again keeps the stream");
+        out->RefuseFormat(HRC_SAMPLE_S24);
+        engine.SetOutputFormat(2, false);
+        engine.SetOutputFormat(1, false);
+        Check(out->LastRequest().format == HRC_SAMPLE_F32 && engine.GetOutputEncoding() == 4, "falls back to float when the mixer refuses 24-bit");
+        engine.SetOutputFormat(21, true);
+        Check(out->LastRequest().format == HRC_SAMPLE_S24 && out->LastRequest().bitPerfect, "no float fallback on a bit-perfect request");
+    }
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -429,6 +469,7 @@ int main(int argc, char** argv) {
     TestSeekAndFixedFormatStop();
     TestDspChangesReceipt();
     TestErrorsAndOwnership();
+    TestLegacySharedFollowsSource();
     if (g_failures == 0) std::printf("hires_engine_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
 }

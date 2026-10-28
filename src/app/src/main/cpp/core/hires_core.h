@@ -211,8 +211,8 @@ typedef int32_t hrc_output_backend;
 
 /* Bit flags in hrc_output_config.flags */
 #define HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER  0x1u  /* caller set a bit-perfect mixer for this format and
-                                                    Android confirmed it; dropped by a reopen that
-                                                    changes the format, so set it again then */
+                                                    Android confirmed it; dropped by a reopen at a
+                                                    track boundary, so set it again then */
 
 typedef struct hrc_output_config {
     uint32_t struct_size;
