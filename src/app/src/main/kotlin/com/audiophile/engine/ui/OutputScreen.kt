@@ -19,6 +19,7 @@ import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.model.BluetoothTelemetry
 import com.audiophile.engine.model.OutputMode
 import com.audiophile.engine.model.TrackMetadata
+import com.audiophile.engine.ui.components.formatRateDepth
 import com.audiophile.engine.ui.theme.*
 
 /**
