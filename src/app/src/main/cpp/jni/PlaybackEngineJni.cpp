@@ -28,8 +28,22 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeOpen(JNIEnv*, jclass
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetNext(JNIEnv*, jclass, jlong handle, jint fd) {
-    return FromHandle(handle)->SetNext(fd) ? JNI_TRUE : JNI_FALSE;
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetNext(JNIEnv*, jclass, jlong handle, jint fd,
+                                                                    jboolean allowCrossfade) {
+    return FromHandle(handle)->SetNext(fd, allowCrossfade == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+// curve: 0 linear, 1 equal power, 2 logarithmic (HRC_FADE_*).
+JNIEXPORT void JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetCrossfade(JNIEnv*, jclass, jlong handle,
+                                                                         jboolean enabled, jint durationMs, jint curve) {
+    FromHandle(handle)->SetCrossfade(enabled == JNI_TRUE, durationMs, curve);
+}
+
+// True while the audio is a mix of two tracks, so it is not the files' own samples.
+JNIEXPORT jboolean JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeIsMixing(JNIEnv*, jclass, jlong handle) {
+    return FromHandle(handle)->IsMixing() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL

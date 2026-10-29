@@ -27,6 +27,7 @@ import com.audiophile.engine.library.LibraryScreen
 import com.audiophile.engine.state.AudioEngineStateRepository
 import com.audiophile.engine.ui.DspRackScreen
 import com.audiophile.engine.ui.OutputHeader
+import com.audiophile.engine.ui.TransitionsDialog
 import com.audiophile.engine.ui.PathScreen
 import com.audiophile.engine.ui.PlayingScreen
 import com.audiophile.engine.ui.theme.*
@@ -111,6 +112,9 @@ fun MainAppScaffold(
     val signalPath by stateRepository.signalPathState.collectAsState()
     val connectedDevice by stateRepository.connectedUsbDevice.collectAsState()
     val outputMode by stateRepository.outputMode.collectAsState()
+    val transitions by stateRepository.transitionSettings.collectAsState()
+    val crossfadeMixing by stateRepository.crossfadeMixing.collectAsState()
+    var showTransitions by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -221,12 +225,25 @@ fun MainAppScaffold(
                             outputMode = outputMode,
                             connectedDevice = connectedDevice,
                             telemetry = telemetry,
-                            onOutputModeChange = { stateRepository.setOutputMode(it) }
+                            onOutputModeChange = { stateRepository.setOutputMode(it) },
+                            transitions = transitions,
+                            mixing = crossfadeMixing,
+                            onOpenTransitions = { showTransitions = true }
                         )
                         HardwareProfilesScreen(
                             database = stateRepository.hardwareDatabase,
                             activeConnectedDevice = connectedDevice,
                             modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (showTransitions) {
+                        TransitionsDialog(
+                            settings = transitions,
+                            mixing = crossfadeMixing,
+                            currentAlbumName = track.album,
+                            currentAlbumKey = stateRepository.currentAlbumKey(),
+                            onChange = { stateRepository.updateTransitions(it) },
+                            onDismiss = { showTransitions = false }
                         )
                     }
                 }

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -6,8 +7,10 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include "../decoders/AudioDecoder.hpp"
 #include "AudioOutput.hpp"
+#include "CrossfadeMixer.hpp"
 #include "EngineTelemetry.hpp"
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
@@ -42,6 +45,7 @@ struct PcmFormat {
  */
 struct TrackSource {
     uint64_t trackId{0};
+    bool noCrossfade{false};      // join the track before this one gaplessly even when crossfade is on
     PcmFormat format{};
     uint64_t totalFrames{0};
     hrc_source_telemetry info{};
@@ -104,6 +108,10 @@ public:
     hrc_result Open(std::unique_ptr<TrackSource> source);
     hrc_result SetNext(std::unique_ptr<TrackSource> source);
     void ClearNext();
+    // Crossfade between tracks. Off by default: transitions are then gapless and bit-exact.
+    hrc_result SetTransition(const hrc_transition_config& config);
+    // True from the moment a crossfade starts until the audio is the new track's own again.
+    bool IsMixing() const noexcept { return mixing_.load(std::memory_order_acquire); }
     hrc_result Play();
     hrc_result Pause();
     hrc_result SeekToFrame(uint64_t frame);
@@ -117,7 +125,19 @@ public:
 
     // Legacy JNI entry points (NativeAudioEngine.kt). Take ownership of fd.
     bool Open(int fd) { return Open(Wrap(fd)) == HRC_OK; }
-    bool SetNext(int fd) { return SetNext(Wrap(fd)) == HRC_OK; }
+    bool SetNext(int fd, bool allowCrossfade = true) {
+        auto source = Wrap(fd);
+        if (source) source->noCrossfade = !allowCrossfade;
+        return SetNext(std::move(source)) == HRC_OK;
+    }
+    void SetCrossfade(bool enabled, int32_t durationMs, int32_t curve) {
+        hrc_transition_config config{};
+        config.struct_size = sizeof(config);
+        config.crossfade_enabled = enabled ? 1u : 0u;
+        config.crossfade_ms = static_cast<uint32_t>(std::max(durationMs, 0));
+        config.curve = curve;
+        SetTransition(config);
+    }
     // Fixed output format as an android.media.AudioFormat encoding (2, 4, 21 or 22).
     void SetOutputFormat(int32_t encoding, bool bitPerfect);
     void SeekTo(int64_t positionMs) { SeekToMs(positionMs); }
@@ -166,9 +186,26 @@ private:
     bool DecodeCodecStep(TrackSource& src);
 #endif
     bool WriteToRing(const uint8_t* data, size_t frames, const PcmFormat& format);
-    bool AdvanceToNext();
+    // Decoded frames of the playing track go through here: held back at the end of the track while
+    // a crossfade could still use them, otherwise straight to the ring.
+    bool Deliver(const TrackSource& src, const uint8_t* data, size_t frames);
+    bool Commit(const uint8_t* data, size_t frames, const PcmFormat& format);  // hash + ring
+    bool FlushTail(size_t frames);        // writes the oldest `frames` held-back frames to the ring
+    void ResetTail();
+    void WaitBoundaryClear();
+    bool FinishTrack();                   // the current track is decoded to its end
+    std::unique_ptr<TrackSource> ClaimNext();
+    void PutBackNext(std::unique_ptr<TrackSource> next);
+    void RestoreStagedLocked();           // decoder stopped: the pre-decoded track goes back in the queue
+    void PrimeNext();                     // decodes the start of the queued track while the ring is full
+    bool AdvanceWith(std::unique_ptr<TrackSource> next);
+    bool CrossfadeInto(std::unique_ptr<TrackSource> next, size_t fadeFrames);
+    size_t FadeFrames(const PcmFormat& format, uint64_t outgoingTotal, uint64_t incomingTotal) const noexcept;
     bool ReopenForNext(std::unique_ptr<TrackSource> next);
-    void BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame);
+    void PublishPending(const TrackSource& src);
+    void BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame, uint64_t mixFrames = 0,
+                     uint64_t windowId = 0);
+    void TryInstallContinue();
     void HashDecoded(const uint8_t* data, size_t frames, const PcmFormat& format);
     void EndWindow();
 
@@ -193,6 +230,31 @@ private:
     std::unique_ptr<TrackSource> next_;
     std::unique_ptr<TrackSource> retired_;   // decoded to the end, audio still in the ring
     std::mutex sourceMutex_;
+    // Pre-decode: the queued track is moved here by the decoder thread, which decodes its first
+    // frames into primed_ while the ring is full. nextVersion_ changes when the app queues or
+    // clears a track, which makes whatever is staged stale. staged_/primed_: decoder thread only
+    // (the control thread touches them only while the decoder is stopped).
+    std::unique_ptr<TrackSource> staged_;
+    uint64_t stagedVersion_{0};
+    uint64_t nextVersion_{0};                // guarded by sourceMutex_
+    std::vector<uint8_t> primed_;
+    size_t primedFrames_{0};
+    bool primeStalled_{false};               // the queued track ended or failed inside the prime
+    bool primeAllowed_{false};               // decoder thread: only while the playing track is being decoded
+    // Crossfade settings (any thread) and decoder-thread state.
+    std::atomic<bool> xfEnabled_{false};
+    std::atomic<uint32_t> xfMs_{8000};
+    std::atomic<int32_t> xfCurve_{HRC_FADE_EQUAL_POWER};
+    std::vector<uint8_t> tail_;              // circular: the last frames of the playing track, not yet in the ring
+    size_t tailCap_{0};
+    size_t tailHead_{0};
+    size_t tailFrames_{0};
+    uint64_t decodePos_{0};                  // frames of the playing track received from its decoder
+    bool pendingContinue_{false};            // a fade ended: its follow-on boundary waits for the first one to clear
+    uint64_t continueWindow_{0};
+    int64_t continueFrame_{0};
+    CrossfadeMixer mixer_;
+    std::vector<uint8_t> mixA_, mixB_, mixOut_;
     std::unique_ptr<uint8_t[]> decodeBuffer_;
     size_t decodeBufferBytes_{0};
     std::unique_ptr<float[]> codecScratch_;  // MediaCodec fallback conversion
@@ -241,6 +303,9 @@ private:
     PcmReceiptHasher decodeHash_;
     std::atomic<int64_t> boundaryFrame_{-1};   // ring frame where the queued window starts, or -1
     std::atomic<uint64_t> boundaryWindow_{0};
+    std::atomic<bool> boundaryContinues_{false};  // the window after the boundary is the same track (after a fade)
+    std::atomic<bool> boundaryMixes_{false};      // the window after the boundary is a crossfade
+    std::atomic<bool> mixing_{false};
     std::atomic<uint64_t> playingWindow_{0};   // set while the callback is stopped, then RT-owned
     std::atomic<uint64_t> playingTrackStart_{0};
     std::atomic<int64_t> playingRingStart_{0};
