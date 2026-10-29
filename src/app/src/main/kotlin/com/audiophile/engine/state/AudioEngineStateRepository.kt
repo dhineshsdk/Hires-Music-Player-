@@ -134,7 +134,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
                 // Reactively observe native player route updates (Android 14 bit-perfect negotiation)
                 PlaybackHolder.player?.route?.let { routeFlow ->
-                    scope.launch {
+                    scope.launch(Dispatchers.Main) {
                         routeFlow.collect { route ->
                             _outputMode.value = if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
                                                 else OutputMode.ModeA_StandardAndroid
@@ -145,7 +145,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
                 // Reactively observe engine format changes (sample rate & bit depth switching)
                 PlaybackHolder.player?.engineFormat?.let { formatFlow ->
-                    scope.launch {
+                    scope.launch(Dispatchers.Main) {
                         formatFlow.collect {
                             refreshTrackMetadata()
                         }
