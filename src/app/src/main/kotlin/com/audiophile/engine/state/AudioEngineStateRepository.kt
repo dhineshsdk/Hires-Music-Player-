@@ -190,7 +190,14 @@ class AudioEngineStateRepository private constructor(context: Context) {
             durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
             currentPositionMs = c.currentPosition,
             isPlaying = c.isPlaying,
-            isMemoryPlayLoaded = false
+            isMemoryPlayLoaded = false,
+            // Library tracks have a MediaStore album cover; picked files fall back to their embedded art.
+            albumArtUri = _library.value.firstOrNull { it.uri == uri }?.let {
+                android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI, it.albumId
+                ).toString()
+            },
+            mediaUri = uri?.toString()
         )
     }
 
