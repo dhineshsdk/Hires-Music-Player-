@@ -49,7 +49,6 @@ fun DspRackScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBackground)
             .verticalScroll(scrollState)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)

@@ -2,39 +2,48 @@ package com.audiophile.engine.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Obsidian Gold base with Tube Amber warmth (approved look: Obsidian Gold + Tube Amber blend)
-val DarkBackground = Color(0xFF050507)
-val DarkSurface = Color(0xFF0D0D11)
-val DarkSurfaceElevated = Color(0xFF18181E)
-val DarkSurfaceBorder = Color(0xFF2B2924)
-val DarkSurfaceRecessed = Color(0xFF08080B)
+// Legacy colour names, now mapped onto the active look's palette (see Look.kt) so older
+// screens follow Liquid or Afterglow without per-screen edits. New code reads `palette` directly.
+val DarkBackground: Color get() = palette.ground
+val DarkSurface: Color get() = palette.glassFill
+val DarkSurfaceElevated: Color get() = palette.glassFillStrong
+val DarkSurfaceBorder: Color get() = palette.glassLine
+val DarkSurfaceRecessed: Color get() = palette.recessed
 
-// Tube Amber: play button, live readouts, filament glow (name kept for existing references)
-val EmberOrange = Color(0xFFFFAB3D)
-val EmberOrangeBright = Color(0xFFFFC266)
-val EmberOrangeGlow = Color(0x66FFAB3D)
+val EmberOrange: Color get() = palette.accent
+val EmberOrangeBright: Color get() = palette.accent
+val EmberOrangeGlow: Color get() = palette.accent.copy(alpha = 0.3f)
 
-// Studio Cyan & Champagne Gold
-val NeonCyan = Color(0xFF00E5FF)
-val ElectricBlue = Color(0xFF2979FF)
-val PhosphorGreen = Color(0xFF8FD8A8)
-val ChampagneGold = Color(0xFFD9B26A)
-val ChampagneGoldBright = Color(0xFFF0D38E)
-val RoonPurple = Color(0xFFB388FF)
-val CrimsonAlert = Color(0xFFFF3D00)
+val NeonCyan: Color get() = palette.ink2
+val ElectricBlue: Color get() = palette.ink2
+val PhosphorGreen: Color get() = palette.exact
+val ChampagneGold: Color get() = palette.ink
+val ChampagneGoldBright: Color get() = palette.ink
+val RoonPurple: Color get() = palette.ink2
+val CrimsonAlert: Color get() = palette.alert
 
-// Refined Typography Colors
-val TextPrimary = Color(0xFFF1EBDD)
-val TextSecondary = Color(0xFF9A9484)
-val TextTertiary = Color(0xFF6B665A)
-val TextOrange = Color(0xFFFFAB3D)
+val TextPrimary: Color get() = palette.ink
+val TextSecondary: Color get() = palette.ink2
+val TextTertiary: Color get() = palette.ink3
+val TextOrange: Color get() = palette.accent
 
-// Tube Warmth
-val TubeFilamentOrange = Color(0xFFFFAB3D)
-val TubeHaloGlow = Color(0x33FFAB3D)
+val TubeFilamentOrange: Color get() = palette.processed
+val TubeHaloGlow: Color get() = palette.processed.copy(alpha = 0.2f)
 
-// Hardware status and brushed-metal tones
-val MatrixGreen = Color(0xFF8FD8A8)
-val AmberGlow = Color(0xFFFFAB3D)
-val BrushedAluminum = Color(0xFF9EA2AD)
-val BrushedAluminumDark = Color(0xFF4A4D57)
+val MatrixGreen: Color get() = palette.exact
+val AmberGlow: Color get() = palette.processed
+val BrushedAluminum: Color get() = palette.ink2
+val BrushedAluminumDark: Color get() = palette.ink3
+
+// Deck DAP skin: a hi-fi chassis with one amber accent and cream VU faces.
+val DeckChassis = Color(0xFF111113)
+val DeckChassisHigh = Color(0xFF17171A)
+val DeckLine = Color(0xFF2A2A2E)
+val DeckInk = Color(0xFFECECEC)
+val DeckInk2 = Color(0xFFA9A9AF)
+val DeckAmber = Color(0xFFF5822A)
+val DeckFace = Color(0xFFF0DFB6)
+val DeckFaceLight = Color(0xFFFFF4D8)
+val DeckFaceEdge = Color(0xFFC9B184)
+val DeckScaleInk = Color(0xFF2B2620)
+val DeckRed = Color(0xFFC8361E)

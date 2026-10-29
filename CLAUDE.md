@@ -117,8 +117,11 @@ Every stage switched off must be **bit-exact bypass**, and every stage needs an 
 ### I. Phase Gates
 Phases run 0 → 7 as in the master plan. A phase closes only when its written gate test passes on CI and on the S24+. A regression in any earlier test blocks the next merge.
 
-### J. UI Direction (chosen 2026-10-23)
-* **Look:** Obsidian Gold with Tube Amber warmth. Near-black surfaces (`#050507` / `#0D0D11`), champagne-gold accents (`#D9B26A`), Tube Amber (`#FFAB3D`) for the play button, live readouts and filament glow, soft green only for "bit-exact". Titles in a serif face, readouts in monospace. Brushed Steel is not used.
-* **Shell:** five tabs in the order Playing, Library, Path, DSP, Output, matching the approved mock ("Hi-Res Player Mock").
-* **Honesty rules for the UI:** every number on screen comes from the engine. No simulated meters, no fake tracks. Controls whose feature does not exist yet (USB exclusive driver, level meters) are labelled as not built, never shown as working.
-* **Ownership note:** `ui/` is normally Gemini's. The user directed the first build of this shell to Claude on 2026-10-23; commits use the `[Claude-UI]` prefix. Gemini owns later UI changes.
+### J. UI Direction (chosen 2026-10-23, revised 2026-10-29)
+* **Look:** Liquid glass is the base: calm, near-neutral glass panes over a blurred, desaturated cover backdrop, white inks, soft green only for "bit-exact". **Afterglow** is the second app look: ivory light on near-black, Sora titles. Obsidian Gold and Brushed Steel are retired. Tokens live in `ui/theme/Look.kt`; colours must stay desaturated (no neon, no rainbow gradients).
+* **Now Playing:** a spinning record (cover as label) with a tonearm that swings on and off with play state.
+* **DAP mode:** full-screen player opened from Now Playing, with skins Liquid (cover lens), **Deck** (twin VU meters, LED spectrum, hardware keys; the default) and Afterglow (record halo). Skin and look are picked under Output → Appearance.
+* **Shell:** five tabs in the order Playing, Library, Path, DSP, Output, in a floating glass tab bar with a mini player above it.
+* **Honesty rules for the UI:** every number on screen comes from the engine. No simulated meters, no fake tracks. Meters, rings and spectra rest and say "LEVEL FEED NOT BUILT" / "SPECTRUM FEED NOT BUILT" until the engine feeds them. Decorative motion (record spin, sweeps, glints) is allowed only where it does not pretend to be data. Controls whose feature does not exist yet are labelled as not built, never shown as working.
+* **No branding:** no Apple, Sony or other vendor names or trade dress (see H.2).
+* **Ownership note:** `ui/` is normally Gemini's. The user directed the first build of this shell (2026-10-23) and the redesign (2026-10-29) to Claude; commits use the `[Claude-UI]` prefix.
