@@ -178,7 +178,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
         val bitDepth = format?.bitDepth ?: 0
         val channels = format?.channels ?: 0
         _trackMetadata.value = TrackMetadata(
-            title = meta.title?.toString() ?: uri?.lastPathSegment ?: "Unknown track",
+            title = meta.title?.toString() ?: uri?.takeIf { it.scheme != "content" }?.lastPathSegment ?: "Unknown track",
             artist = meta.artist?.toString().orEmpty(),
             album = meta.albumTitle?.toString().orEmpty(),
             sampleRateHz = sampleRate,

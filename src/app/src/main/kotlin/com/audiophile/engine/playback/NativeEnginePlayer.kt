@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.net.Uri
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
@@ -410,9 +411,13 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
-            val fallbackTitle = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')
+            // Tag, then the title the library already knows, then the file name. A content:// URI's last
+            // segment is the MediaStore id, never a name.
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?: item.mediaMetadata.title?.toString()
+                ?: displayName(uri)
             MediaMetadata.Builder()
-                .setTitle(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fallbackTitle)
+                .setTitle(title)
                 .setArtist(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST))
                 .setAlbumTitle(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM))
                 .setArtworkData(retriever.embeddedPicture, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
@@ -422,6 +427,18 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         } finally {
             retriever.release()
         }
+    }
+
+    private fun displayName(uri: Uri): String? {
+        val raw = if (uri.scheme == "content") {
+            runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }.getOrNull()
+        } else {
+            uri.lastPathSegment
+        }
+        return raw?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotEmpty() }
     }
 
     private companion object {
