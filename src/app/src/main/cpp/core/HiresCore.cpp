@@ -85,7 +85,14 @@ hrc_result hrc_queue_next(hrc_engine* engine, const hrc_source* source) {
     std::unique_ptr<TrackSource> track = MakeSource(source, error);
     if (engine == nullptr) return HRC_E_INVALID_ARG;
     if (!track) return error;
+    track->noCrossfade = (source->flags & HRC_SOURCE_FLAG_NO_CROSSFADE) != 0;
     return engine->engine->SetNext(std::move(track));
+}
+
+hrc_result hrc_set_transition(hrc_engine* engine, const hrc_transition_config* config) {
+    if (engine == nullptr || config == nullptr) return HRC_E_INVALID_ARG;
+    if (config->struct_size < sizeof(hrc_transition_config)) return HRC_E_STRUCT_SIZE;
+    return engine->engine->SetTransition(*config);
 }
 
 hrc_result hrc_clear_next(hrc_engine* engine) {

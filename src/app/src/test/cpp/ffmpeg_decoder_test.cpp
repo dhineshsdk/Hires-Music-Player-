@@ -81,14 +81,20 @@ int main(int argc, char** argv) {
             if (n == 0) break;
             got.insert(got.end(), buf.begin(), buf.begin() + static_cast<long>(n * frameBytes));
         }
-        CHECK(got.size() == ref.size());
-        CHECK(got == ref);
-        CHECK(dec.PositionFrames() == ref.size() / frameBytes);
+        if (exactSeek || container == 11) {
+            CHECK(got.size() == ref.size());
+            CHECK(got == ref);
+        } else {
+            // Lossy AAC: the CLI keeps the encoder's end padding, which we deliberately cut (gapless).
+            CHECK(got.size() <= ref.size() && ref.size() - got.size() <= 2112 * frameBytes);
+            CHECK(std::memcmp(got.data(), ref.data(), got.size()) == 0);
+        }
+        CHECK(dec.PositionFrames() == got.size() / frameBytes);
         CHECK(f.totalFrames == 0 || f.totalFrames + 4096 >= ref.size() / frameBytes);
         CHECK(dec.ReadFrames(buf.data(), 10) == 0);
 
         // Seeks.
-        const uint64_t total = ref.size() / frameBytes;
+        const uint64_t total = got.size() / frameBytes;
         const uint64_t targets[] = {0, total / 3, total / 2 + 17, total - 1000, 5};
         for (uint64_t t : targets) {
             CHECK(dec.SeekToFrame(t));

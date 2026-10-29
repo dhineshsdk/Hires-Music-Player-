@@ -32,7 +32,7 @@ jobs:
           ./pcm_encoding_test
           g++ -std=c++20 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders wav_decoder_test.cpp ../../main/cpp/decoders/WavDecoder.cpp -o wav_decoder_test
           ./wav_decoder_test
-          sudo apt-get update -qq && sudo apt-get install -y -qq libflac-dev ffmpeg
+          sudo apt-get update -qq && sudo apt-get install -y -qq libflac-dev ffmpeg libavformat-dev libavcodec-dev libavutil-dev libswresample-dev
           g++ -std=c++20 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/decoders flac_decoder_test.cpp ../../main/cpp/decoders/FlacDecoder.cpp -lFLAC -o flac_decoder_test
           # Reference PCM comes from ffmpeg's own FLAC decoder, so the check is independent of libFLAC.
           ffmpeg -v error -y -f lavfi -i "anoisesrc=d=4:c=pink:r=44100:a=0.7:seed=7" -af aformat=channel_layouts=stereo -sample_fmt s16 -c:a flac t16.flac
@@ -50,6 +50,10 @@ jobs:
           ./null_test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
           ./dsp_suite_test
+          # Lossy-file gapless trimming and exact seeks, then the engine end to end (gapless, pre-decode,
+          # crossfade) under ASan+UBSan and TSan.
+          bash run_wp1_host_tests.sh
+          bash run_engine_host_tests.sh
 
       # Without these shared libraries the APK has no ALAC/APE/WavPack/MP3/AAC/Opus/Vorbis decoding
       # (Android ships no ALAC decoder). FFmpeg is LGPL and linked dynamically; the build is cached.

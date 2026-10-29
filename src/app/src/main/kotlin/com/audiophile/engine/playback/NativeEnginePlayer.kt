@@ -59,6 +59,12 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     // Bumped whenever the open track changes, so a stale background open is dropped.
     private var openGeneration = 0
 
+    private var transitions = TransitionSettings()
+    private var queuedAllowFade = true   // what the queued track was handed to the engine with
+    private val _mixing = MutableStateFlow(false)
+    /** True while two tracks are being crossfaded: the audio is a mix, not the files' own samples. */
+    val mixing: StateFlow<Boolean> = _mixing.asStateFlow()
+
     private val router = BitPerfectRouter(audioManager)
     private var bitPerfectEnabled = true
     // The EQ is changing samples, so the shared stream is opened in float (no requantizing on our side).
@@ -97,9 +103,11 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private val ticker = object : Runnable {
         override fun run() {
             if (preparedIndex >= 0) {
-                val transitions = engine.pollTransitions()
-                if (transitions > seenTransitions) onGaplessTransition(transitions)
+                val changes = engine.pollTransitions()
+                if (changes > seenTransitions) onGaplessTransition(changes)
             }
+            val mixingNow = preparedIndex >= 0 && engine.isMixing
+            if (_mixing.value != mixingNow) _mixing.value = mixingNow
             if (engine.state == NativeAudioEngine.State.ENDED && playbackState == Player.STATE_READY) {
                 onTrackEnded()
             }
@@ -115,6 +123,8 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         )
         mainHandler.post(ticker)
         audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler)
+        // The service can start without the UI (headset button, Bluetooth): use the saved settings.
+        setTransitions(TransitionSettingsStore(context).load())
     }
 
     /** Turns Android 14 bit-perfect USB output on or off (the shared mixer is used when off). */
@@ -122,6 +132,32 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         bitPerfectEnabled = enabled
         applyRoute()
     }
+
+    /**
+     * Applies how tracks hand over to each other. Takes effect for the queued track as well: it is
+     * handed to the engine again when the new settings change whether it may be faded into.
+     */
+    fun setTransitions(settings: TransitionSettings) {
+        transitions = settings
+        engine.setCrossfade(settings.crossfadeEnabled, settings.crossfadeMs, settings.curve)
+        if (preparedIndex >= 0 && allowFadeInto(currentIndex + 1) != queuedAllowFade) preloadNext()
+    }
+
+    /** Key that tells whether two items belong to one album; null when unknown. */
+    fun albumKeyOf(index: Int): String? = albumKey(playlist.getOrNull(index))
+
+    /** Album key of the track that is playing now. */
+    fun currentAlbumKey(): String? = albumKeyOf(currentIndex)
+
+    private fun albumKey(item: MediaItem?): String? {
+        val meta = item?.mediaMetadata ?: return null
+        val id = meta.extras?.getLong(EXTRA_ALBUM_ID, NO_ALBUM) ?: NO_ALBUM
+        if (id != NO_ALBUM) return "id:$id"
+        return meta.albumTitle?.toString()?.takeIf { it.isNotBlank() }?.let { "t:${it.lowercase()}" }
+    }
+
+    private fun allowFadeInto(nextIndex: Int): Boolean =
+        transitions.allowsFade(albumKeyOf(nextIndex - 1), albumKeyOf(nextIndex))
 
     /**
      * Applies the DSP rack's parametric EQ in the engine. A preamp equal to the largest boost
@@ -347,17 +383,18 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                     android.os.ParcelFileDescriptor.adoptFd(fd).close()
                     return@post
                 }
-                // A different format plays on after a reopen on the shared route; on the bit-perfect route
-                // the engine stops at the boundary and that track opens normally.
-                if (!engine.setNext(fd)) Log.w(TAG, "Engine could not preload $uri")
+                // A different sample rate is not queued by the engine; that track opens normally at the end.
+                val allowFade = allowFadeInto(nextIndex)
+                queuedAllowFade = allowFade
+                if (!engine.setNext(fd, allowFade)) Log.w(TAG, "Engine could not preload $uri")
             }
         }
     }
 
-    /** The engine moved into the queued track without a gap. */
-    private fun onGaplessTransition(transitions: Int) {
+    /** The engine moved into the queued track, without a gap or with a crossfade. */
+    private fun onGaplessTransition(count: Int) {
         val previous = _engineFormat.value
-        seenTransitions = transitions
+        seenTransitions = count
         currentIndex += 1
         preparedIndex = currentIndex
         openGeneration++
@@ -461,5 +498,6 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private companion object {
         const val TAG = "NativeEnginePlayer"
         const val TICK_MS = 250L
+        const val NO_ALBUM = -1L
     }
 }

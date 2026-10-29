@@ -20,6 +20,9 @@ import com.audiophile.engine.hardware.UsbDeviceProfile
 import com.audiophile.engine.library.LibraryTrack
 import com.audiophile.engine.library.MusicLibrary
 import com.audiophile.engine.model.*
+import com.audiophile.engine.playback.EXTRA_ALBUM_ID
+import com.audiophile.engine.playback.TransitionSettings
+import com.audiophile.engine.playback.TransitionSettingsStore
 import com.audiophile.engine.service.DeterministicAudioService
 import com.audiophile.engine.service.PlaybackHolder
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +67,15 @@ class AudioEngineStateRepository private constructor(context: Context) {
     // 4. Output Mode
     private val _outputMode = MutableStateFlow(OutputMode.ModeA_StandardAndroid)
     val outputMode: StateFlow<OutputMode> = _outputMode.asStateFlow()
+
+    // 4b. Gapless and crossfade between tracks
+    private val transitionStore = TransitionSettingsStore(appContext)
+    private val _transitionSettings = MutableStateFlow(transitionStore.load())
+    val transitionSettings: StateFlow<TransitionSettings> = _transitionSettings.asStateFlow()
+
+    // True only while the engine reports that two tracks are being mixed (never simulated).
+    private val _crossfadeMixing = MutableStateFlow(false)
+    val crossfadeMixing: StateFlow<Boolean> = _crossfadeMixing.asStateFlow()
 
     // 5. Bluetooth Telemetry
     val bluetoothTelemetryManager = BluetoothTelemetryManager(context)
@@ -130,6 +142,10 @@ class AudioEngineStateRepository private constructor(context: Context) {
             controller = runCatching { future.get() }.getOrNull()?.also {
                 it.addListener(controllerListener)
                 PlaybackHolder.player?.setDsp(_dspRackState.value)
+                PlaybackHolder.player?.setTransitions(_transitionSettings.value)
+                PlaybackHolder.player?.mixing?.let { mixingFlow ->
+                    scope.launch { mixingFlow.collect { _crossfadeMixing.value = it } }
+                }
                 refreshTrackMetadata()
 
                 // Reactively observe native player route updates (Android 14 bit-perfect negotiation)
@@ -235,6 +251,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
                         .setTitle(track.title)
                         .setArtist(track.artist)
                         .setAlbumTitle(track.album)
+                        .setExtras(android.os.Bundle().apply { putLong(EXTRA_ALBUM_ID, track.albumId) })
                         .build()
                 )
                 .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(track.uri).build())
@@ -275,6 +292,17 @@ class AudioEngineStateRepository private constructor(context: Context) {
         PlaybackHolder.player?.setBitPerfectEnabled(mode != OutputMode.ModeA_StandardAndroid)
         refreshTrackMetadata()
     }
+
+    /** Changes how tracks hand over; saved and applied to the engine at once. */
+    fun updateTransitions(transform: (TransitionSettings) -> TransitionSettings) {
+        val settings = transform(_transitionSettings.value)
+        _transitionSettings.value = settings
+        transitionStore.save(settings)
+        PlaybackHolder.player?.setTransitions(settings)
+    }
+
+    /** Key of the album that is playing, or null when there is none or it has no album tag. */
+    fun currentAlbumKey(): String? = PlaybackHolder.player?.currentAlbumKey()
 
     fun toggleFakeHiResSimulation() {
         val currentFake = _forensicMetrics.value.isFakeUpsampled

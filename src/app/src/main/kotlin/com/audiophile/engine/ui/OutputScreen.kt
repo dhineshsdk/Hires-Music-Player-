@@ -20,6 +20,7 @@ import com.audiophile.engine.model.BluetoothTelemetry
 import com.audiophile.engine.model.OutputMode
 import com.audiophile.engine.model.TrackMetadata
 import com.audiophile.engine.ui.components.formatRateDepth
+import com.audiophile.engine.playback.TransitionSettings
 import com.audiophile.engine.ui.theme.*
 
 /**
@@ -33,7 +34,10 @@ fun OutputHeader(
     connectedDevice: ConnectedUsbDevice?,
     telemetry: BluetoothTelemetry,
     onOutputModeChange: (OutputMode) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    transitions: TransitionSettings = TransitionSettings(),
+    mixing: Boolean = false,
+    onOpenTransitions: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Output", color = TextPrimary, fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
@@ -52,6 +56,24 @@ fun OutputHeader(
             color = TextSecondary, fontSize = 11.5.sp
         )
         Text("USB exclusive driver: not built yet (planned Phase 5)", color = TextTertiary, fontFamily = FontFamily.Monospace, fontSize = 10.5.sp)
+
+        Card {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onOpenTransitions),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Transitions", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        if (mixing) "Mixing two tracks now · not bit-exact" else transitionSummary(transitions),
+                        color = if (mixing) EmberOrange else if (transitions.crossfadeEnabled) TextSecondary else PhosphorGreen,
+                        fontFamily = FontFamily.Monospace, fontSize = 11.5.sp
+                    )
+                }
+                Text("›", color = TextTertiary, fontSize = 20.sp)
+            }
+        }
 
         Card {
             Text(connectedDevice?.profile?.deviceName ?: "No USB DAC connected", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)

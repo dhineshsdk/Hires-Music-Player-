@@ -386,6 +386,9 @@ void PlaybackEngine::ResetRingLocked(const PcmFormat& format, uint64_t trackStar
     rtHash_.Reset();
     rtEnded_.store(false, std::memory_order_relaxed);
     decoderDone_.store(false, std::memory_order_relaxed);
+    boundaryContinues_.store(false, std::memory_order_relaxed);
+    boundaryMixes_.store(false, std::memory_order_relaxed);
+    mixing_.store(false, std::memory_order_relaxed);
 }
 
 hrc_result PlaybackEngine::Open(std::unique_ptr<TrackSource> source) {
@@ -417,12 +420,23 @@ hrc_result PlaybackEngine::SetNext(std::unique_ptr<TrackSource> source) {
     if (!source) return HRC_E_INVALID_ARG;
     std::lock_guard<std::mutex> lock(sourceMutex_);
     next_ = std::move(source);
+    ++nextVersion_;  // whatever the decoder thread had pre-decoded is stale now
     return HRC_OK;
 }
 
 void PlaybackEngine::ClearNext() {
     std::lock_guard<std::mutex> lock(sourceMutex_);
     next_.reset();
+    ++nextVersion_;
+}
+
+hrc_result PlaybackEngine::SetTransition(const hrc_transition_config& config) {
+    if (config.struct_size < sizeof(hrc_transition_config)) return HRC_E_STRUCT_SIZE;
+    if (config.curve < HRC_FADE_LINEAR || config.curve > HRC_FADE_LOGARITHMIC) return HRC_E_INVALID_ARG;
+    xfMs_.store(std::clamp(config.crossfade_ms, HRC_CROSSFADE_MIN_MS, HRC_CROSSFADE_MAX_MS), std::memory_order_relaxed);
+    xfCurve_.store(config.curve, std::memory_order_relaxed);
+    xfEnabled_.store(config.crossfade_enabled != 0, std::memory_order_release);
+    return HRC_OK;
 }
 
 hrc_result PlaybackEngine::Play() {
@@ -468,12 +482,14 @@ hrc_result PlaybackEngine::SeekToFrame(uint64_t frame) {
     }
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
-        if (boundaryFrame_.load() >= 0 && retired_) {
-            // The decoder had already moved on to the queued track, but the listener had not
-            // reached it yet. Put the queued track back and seek the one being heard.
+        RestoreStagedLocked();
+        if (boundaryFrame_.load() >= 0 && !boundaryContinues_.load() && retired_) {
+            // The decoder had already moved on to the queued track (or begun fading into it), but
+            // the listener had not reached it yet. Put the queued track back and seek the one being heard.
             current_->SeekToFrame(0);
-            next_ = std::move(current_);
+            if (!next_) next_ = std::move(current_);
             current_ = std::move(retired_);
+            ++nextVersion_;
         }
         retired_.reset();
     }
@@ -507,10 +523,14 @@ hrc_result PlaybackEngine::Close() {
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
         next_.reset();
+        staged_.reset();
         retired_.reset();
+        primedFrames_ = 0;
+        ++nextVersion_;
     }
     current_.reset();
     boundaryFrame_.store(-1);
+    mixing_.store(false);
     PublishPlayingInfo(TrackSource{});
     state_.store(State::Idle, std::memory_order_release);
     return HRC_OK;
@@ -613,22 +633,31 @@ void PlaybackEngine::StopDecoder() {
 }
 
 void PlaybackEngine::DecoderLoop(WindowReason reason, uint64_t windowStartFrame) {
+    ResetTail();
+    decodePos_ = windowStartFrame;
+    primedFrames_ = 0;
+    primeStalled_ = false;
+    primeAllowed_ = true;
+    pendingContinue_ = false;
     BeginWindow(*current_, reason, windowStartFrame);
     while (decoderRunning_.load()) {
         if (DecodeStep(*current_)) continue;
         if (!decoderRunning_.load()) return;  // stopped mid-track; not the end of anything
-        EndWindow();
-        if (!AdvanceToNext()) {
+        if (!FinishTrack()) {
             if (decoderRunning_.load()) decoderDone_.store(true, std::memory_order_release);
             return;
         }
     }
 }
 
-void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame) {
-    // The window id was assigned when the ring was reset (open, seek, reopen) or at the boundary (gapless).
-    decodeWindow_ = reason == WindowReason::Gapless ? boundaryWindow_.load(std::memory_order_relaxed)
-                                                    : playingWindow_.load(std::memory_order_acquire);
+void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame, uint64_t mixFrames,
+                                 uint64_t windowId) {
+    // The window id was assigned when the ring was reset (open, seek, reopen) or at the boundary (gapless, fade).
+    const bool atBoundary = reason == WindowReason::Gapless || reason == WindowReason::Crossfade ||
+                            reason == WindowReason::Continue;
+    decodeWindow_ = windowId != 0 ? windowId
+                  : atBoundary ? boundaryWindow_.load(std::memory_order_relaxed)
+                               : playingWindow_.load(std::memory_order_acquire);
     decodeWindowFrames_ = 0;
     decodeHash_.Reset();
     DecoderRecord r{};
@@ -636,6 +665,7 @@ void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, ui
     r.reason = reason;
     r.windowId = decodeWindow_;
     r.frames = startFrame;
+    r.mixFrames = mixFrames;
     r.source = src.info;
     decoderRing_.TryPush(r);
 }
@@ -687,8 +717,7 @@ bool PlaybackEngine::DecodeNativeStep(TrackSource& src) {
     }
     const size_t frames = src.decoder->ReadFrames(decodeBuffer_.get(), kFrames);
     if (frames == 0) return false;
-    HashDecoded(decodeBuffer_.get(), frames, src.format);
-    return WriteToRing(decodeBuffer_.get(), frames, src.format);
+    return Deliver(src, decodeBuffer_.get(), frames);
 }
 
 #if HIRES_HAVE_MEDIACODEC
@@ -770,6 +799,7 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
     const size_t frameBytes = format.FrameBytes();
     while (frames > 0) {
         if (!decoderRunning_.load()) return false;
+        TryInstallContinue();
         const size_t room = ring_->AvailableToWrite() / frameBytes;  // whole frames only
         const size_t n = std::min(frames, room);
         if (n > 0) {
@@ -779,7 +809,9 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
             data += n * frameBytes;
             frames -= n;
         } else {
-            // Ring is full: the device is draining it. Wait without spinning.
+            // Ring is full: the device is draining it. Use the time to decode the start of the queued
+            // track, then wait without spinning.
+            PrimeNext();
             std::unique_lock<std::mutex> lock(decoderMutex_);
             decoderCv_.wait_for(lock, kWait);
         }
@@ -787,38 +819,358 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
     return true;
 }
 
-// At the end of the current track, continue into the queued one: gaplessly in the same stream
-// when the format is identical, else by reopening the output once the listener reaches the end.
-bool PlaybackEngine::AdvanceToNext() {
+// ---------------------------------------------------------------------------
+// Track boundaries (decoder thread)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Never hold back more than this for a crossfade, whatever the setting and the format.
+constexpr size_t kMaxTailBytes = 64u << 20;
+constexpr size_t kMixChunkFrames = 4096;
+}  // namespace
+
+// Frames a crossfade between these two tracks lasts: the setting, but never more than half of
+// either track and never more than we are willing to hold in memory.
+size_t PlaybackEngine::FadeFrames(const PcmFormat& format, uint64_t outgoingTotal, uint64_t incomingTotal) const noexcept {
+    if (format.sampleRate <= 0 || format.FrameBytes() == 0) return 0;
+    const uint32_t ms = std::clamp(xfMs_.load(std::memory_order_relaxed), HRC_CROSSFADE_MIN_MS, HRC_CROSSFADE_MAX_MS);
+    uint64_t frames = static_cast<uint64_t>(ms) * static_cast<uint64_t>(format.sampleRate) / 1000u;
+    if (outgoingTotal > 0) frames = std::min<uint64_t>(frames, outgoingTotal / 2);
+    if (incomingTotal > 0) frames = std::min<uint64_t>(frames, incomingTotal / 2);
+    frames = std::min<uint64_t>(frames, kMaxTailBytes / format.FrameBytes());
+    return static_cast<size_t>(frames);
+}
+
+bool PlaybackEngine::Commit(const uint8_t* data, size_t frames, const PcmFormat& format) {
+    HashDecoded(data, frames, format);
+    return WriteToRing(data, frames, format);
+}
+
+void PlaybackEngine::ResetTail() {
+    tailCap_ = 0;
+    tailHead_ = 0;
+    tailFrames_ = 0;
+}
+
+// Writes the oldest `frames` held-back frames to the ring.
+bool PlaybackEngine::FlushTail(size_t frames) {
+    frames = std::min(frames, tailFrames_);
+    if (frames == 0) return true;
+    const PcmFormat& format = ringFormat_;
+    const size_t frameBytes = format.FrameBytes();
+    const size_t first = std::min(frames, tailCap_ - tailHead_);
+    const bool ok = Commit(tail_.data() + tailHead_ * frameBytes, first, format) &&
+                    (first == frames || Commit(tail_.data(), frames - first, format));
+    tailHead_ = (tailHead_ + frames) % tailCap_;
+    tailFrames_ -= frames;
+    return ok;
+}
+
+bool PlaybackEngine::Deliver(const TrackSource& src, const uint8_t* data, size_t frames) {
+    const PcmFormat& format = src.format;
+    const size_t frameBytes = format.FrameBytes();
+    if (tailCap_ == 0 && xfEnabled_.load(std::memory_order_acquire) && src.totalFrames > 0 && src.decoder) {
+        // Hold back the end of the track while a crossfade might still use it. The length is
+        // known, so this starts a little early (a quarter second) to absorb a length that is
+        // slightly off; the tail itself is always the real last frames, found at end of stream.
+        const size_t fade = FadeFrames(format, src.totalFrames, 0);
+        if (fade >= static_cast<size_t>(format.sampleRate) / 10) {
+            const uint64_t slack = static_cast<uint64_t>(format.sampleRate) / 4;
+            const uint64_t holdFrom = src.totalFrames > fade + slack ? src.totalFrames - fade - slack : 0;
+            if (decodePos_ + frames > holdFrom) {
+                const size_t direct = decodePos_ >= holdFrom ? 0 : static_cast<size_t>(holdFrom - decodePos_);
+                if (direct > 0) {
+                    if (!Commit(data, direct, format)) return false;
+                    data += direct * frameBytes;
+                    frames -= direct;
+                    decodePos_ += direct;
+                }
+                tailCap_ = fade;
+                tailHead_ = 0;
+                tailFrames_ = 0;
+                if (tail_.size() < fade * frameBytes) tail_.resize(fade * frameBytes);
+            }
+        }
+    }
+    decodePos_ += frames;
+    if (tailCap_ == 0) return Commit(data, frames, format);
+
+    if (frames >= tailCap_) {   // this chunk alone fills the tail
+        if (!FlushTail(tailFrames_)) return false;
+        const size_t skip = frames - tailCap_;
+        if (skip > 0 && !Commit(data, skip, format)) return false;
+        std::memcpy(tail_.data(), data + skip * frameBytes, tailCap_ * frameBytes);
+        tailHead_ = 0;
+        tailFrames_ = tailCap_;
+        return true;
+    }
+    const size_t overflow = tailFrames_ + frames > tailCap_ ? tailFrames_ + frames - tailCap_ : 0;
+    if (overflow > 0 && !FlushTail(overflow)) return false;
+    const size_t at = (tailHead_ + tailFrames_) % tailCap_;
+    const size_t first = std::min(frames, tailCap_ - at);
+    std::memcpy(tail_.data() + at * frameBytes, data, first * frameBytes);
+    if (first < frames) std::memcpy(tail_.data(), data + first * frameBytes, (frames - first) * frameBytes);
+    tailFrames_ += frames;
+    return true;
+}
+
+// A fade ends with the same track going on untouched; that second boundary is installed as soon
+// as the first one has been crossed, because only one can be pending at a time.
+void PlaybackEngine::TryInstallContinue() {
+    if (!pendingContinue_ || boundaryFrame_.load(std::memory_order_acquire) >= 0) return;
+    boundaryWindow_.store(continueWindow_, std::memory_order_relaxed);
+    boundaryContinues_.store(true, std::memory_order_relaxed);
+    boundaryMixes_.store(false, std::memory_order_relaxed);
+    boundaryFrame_.store(continueFrame_, std::memory_order_release);
+    pendingContinue_ = false;
+}
+
+void PlaybackEngine::WaitBoundaryClear() {
     // Only one boundary can be pending; wait for the listener to cross the previous one.
-    while (decoderRunning_.load() && boundaryFrame_.load(std::memory_order_acquire) >= 0) {
+    while (decoderRunning_.load()) {
+        TryInstallContinue();
+        if (boundaryFrame_.load(std::memory_order_acquire) < 0 && !pendingContinue_) break;
         std::unique_lock<std::mutex> lock(decoderMutex_);
         decoderCv_.wait_for(lock, kWait);
     }
-    if (!decoderRunning_.load()) return false;
+}
 
-    std::unique_ptr<TrackSource> next;
+// The queued track, from the pre-decode stage when it is still the one the app queued.
+std::unique_ptr<TrackSource> PlaybackEngine::ClaimNext() {
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    if (staged_) {
+        if (stagedVersion_ == nextVersion_) return std::move(staged_);   // primed_ holds its first frames
+        staged_.reset();   // the app queued or cleared a track since
+    }
+    primedFrames_ = 0;
+    return std::move(next_);
+}
+
+void PlaybackEngine::PutBackNext(std::unique_ptr<TrackSource> next) {
+    if (!next) return;
+    if (primedFrames_ > 0) next->SeekToFrame(0);   // its first frames were taken; start it over
+    primedFrames_ = 0;
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    if (!next_) next_ = std::move(next);
+}
+
+// Decoder stopped (seek, close): the pre-decoded track goes back to being the queued one.
+void PlaybackEngine::RestoreStagedLocked() {
+    if (staged_) {
+        if (stagedVersion_ == nextVersion_ && !next_) {
+            if (primedFrames_ > 0) staged_->SeekToFrame(0);
+            next_ = std::move(staged_);
+        }
+        staged_.reset();
+    }
+    primedFrames_ = 0;
+    primeStalled_ = false;
+}
+
+// While the ring is full the decoder has nothing to do: decode the start of the queued track,
+// so the boundary (and a crossfade, which needs those frames at once) never waits on a file open
+// or a network read.
+void PlaybackEngine::PrimeNext() {
+    if (!primeAllowed_ || primeStalled_ || ringFrameBytes_ == 0) return;
+    TrackSource* staged = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        if (staged_ && stagedVersion_ != nextVersion_) {
+            staged_.reset();
+            primedFrames_ = 0;
+        }
+        if (!staged_) {
+            if (!next_) return;
+            staged_ = std::move(next_);
+            stagedVersion_ = nextVersion_;
+            primedFrames_ = 0;
+        }
+        staged = staged_.get();
+    }
+    if (!staged->decoder || staged->format != ringFormat_) {
+        primeStalled_ = true;   // nothing to prime: it will be opened at the boundary
+        return;
+    }
+    const size_t frameBytes = ringFrameBytes_;
+    const size_t rate = static_cast<size_t>(ringFormat_.sampleRate);
+    size_t target = xfEnabled_.load(std::memory_order_acquire) ? FadeFrames(ringFormat_, 0, staged->totalFrames) : 0;
+    target = std::min(std::max(target, rate / 2), std::min(rate * 8, (32u << 20) / frameBytes));
+    if (primedFrames_ >= target) return;
+    if (primed_.size() < target * frameBytes) primed_.resize(target * frameBytes);
+    const size_t want = std::min<size_t>(kMixChunkFrames, target - primedFrames_);
+    const size_t got = staged->decoder->ReadFrames(primed_.data() + primedFrames_ * frameBytes, want);
+    primedFrames_ += got;
+    if (got == 0) primeStalled_ = true;   // the queued track is empty or unreadable
+}
+
+void PlaybackEngine::PublishPending(const TrackSource& src) {
+    pendingRate_.store(src.format.sampleRate, std::memory_order_relaxed);
+    pendingChannels_.store(src.format.channels, std::memory_order_relaxed);
+    pendingBits_.store(src.info.valid_bits, std::memory_order_relaxed);
+    pendingTotalFrames_.store(src.totalFrames, std::memory_order_relaxed);
+}
+
+// The current track is decoded to its end: crossfade into the queued one, or continue into it
+// gaplessly, or (nothing queued) finish.
+bool PlaybackEngine::FinishTrack() {
+    primeAllowed_ = false;
+    std::unique_ptr<TrackSource> next = ClaimNext();
+    // Nothing queued yet. The app queues the next track a moment after a track opens, and a short
+    // track can be decoded before that happens: give it a moment while the listener still has well
+    // over that much waiting. (Not while a fade tail is held back: that audio is still owed.)
+    if (!next && tailFrames_ == 0 && ringFrameBytes_ > 0) {
+        const size_t margin = ringFrameBytes_ * (static_cast<size_t>(ringFormat_.sampleRate) / 2);   // keep 500 ms in hand
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+        while (!next && decoderRunning_.load() && ring_->AvailableToRead() > margin &&
+               std::chrono::steady_clock::now() < until) {
+            {
+                std::unique_lock<std::mutex> lock(decoderMutex_);
+                decoderCv_.wait_for(lock, std::chrono::milliseconds(10));
+            }
+            next = ClaimNext();
+        }
+    }
+    size_t fade = 0;
+    if (next && tailFrames_ > 0 && xfEnabled_.load(std::memory_order_acquire) && next->decoder &&
+        !next->noCrossfade && next->format == ringFormat_) {
+        fade = std::min(tailFrames_, FadeFrames(ringFormat_, 0, next->totalFrames));
+        if (fade < static_cast<size_t>(ringFormat_.sampleRate) / 10) fade = 0;   // too short to be a fade
+    }
+    // Everything before the fade is plain audio; so is all of it when there is no fade. It goes
+    // out before we wait for the previous boundary, or the listener could run dry meanwhile.
+    const bool flushed = FlushTail(fade > 0 ? tailFrames_ - fade : tailFrames_);
+    if (fade == 0) ResetTail();
+    if (!flushed) {
+        PutBackNext(std::move(next));
+        return false;
+    }
+    EndWindow();
+    WaitBoundaryClear();   // only one boundary can be pending
+    if (!decoderRunning_.load()) {
+        PutBackNext(std::move(next));
+        return false;
+    }
+    if (!next) {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        retired_.reset();  // its last frame has been heard
+        return false;
+    }
+    const bool ok = fade > 0 ? CrossfadeInto(std::move(next), fade) : AdvanceWith(std::move(next));
+    primeAllowed_ = ok;
+    primeStalled_ = false;
+    return ok;
+}
+
+// Continue into the queued track: gaplessly in the same stream when the format is identical,
+// else by reopening the output once the listener reaches the end.
+bool PlaybackEngine::AdvanceWith(std::unique_ptr<TrackSource> next) {
+    if (!decoderRunning_.load()) {
+        PutBackNext(std::move(next));
+        return false;
+    }
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
         retired_.reset();  // its last frame has been heard
-        if (!next_) return false;
-        if (next_->format == ringFormat_) {
+        if (next->format == ringFormat_) {
             retired_ = std::move(current_);
-            current_ = std::move(next_);
-            pendingRate_.store(current_->format.sampleRate, std::memory_order_relaxed);
-            pendingChannels_.store(current_->format.channels, std::memory_order_relaxed);
-            pendingBits_.store(current_->info.valid_bits, std::memory_order_relaxed);
-            pendingTotalFrames_.store(current_->totalFrames, std::memory_order_relaxed);
+            current_ = std::move(next);
+            PublishPending(*current_);
             boundaryWindow_.store(nextWindowId_.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+            boundaryContinues_.store(false, std::memory_order_relaxed);
+            boundaryMixes_.store(false, std::memory_order_relaxed);
             BeginWindow(*current_, WindowReason::Gapless, 0);
             boundaryFrame_.store(framesWritten_, std::memory_order_release);
             HRC_LOGI(kTag, "Gapless: next track queued at frame %lld", static_cast<long long>(framesWritten_));
-            return true;
+        } else if (!FollowsSource()) {
+            // Fixed output format: stop at the boundary, the app reopens.
+            if (!next_) next_ = std::move(next);
+            return false;
         }
-        if (!FollowsSource()) return false;  // fixed output format: stop at the boundary, the app reopens
-        next = std::move(next_);
+    }
+    if (!next) {   // moved into current_ above: same format
+        // The first frames were decoded ahead of time; they go out first.
+        ResetTail();
+        decodePos_ = 0;
+        const size_t primed = primedFrames_;
+        primedFrames_ = 0;
+        return primed == 0 || Deliver(*current_, primed_.data(), primed);
     }
     return ReopenForNext(std::move(next));
+}
+
+// Mixes the held-back end of the playing track with the start of the queued one into the ring.
+// From the boundary on, the listener hears track `next` (position, metadata) while the audio is
+// still mostly the old track: that is how a crossfade reads on every player.
+bool PlaybackEngine::CrossfadeInto(std::unique_ptr<TrackSource> next, size_t fadeFrames) {
+    const FadeCurve curve = static_cast<FadeCurve>(xfCurve_.load(std::memory_order_relaxed));
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        retired_.reset();
+        retired_ = std::move(current_);
+        current_ = std::move(next);
+        PublishPending(*current_);
+        boundaryWindow_.store(nextWindowId_.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+        boundaryContinues_.store(false, std::memory_order_relaxed);
+        boundaryMixes_.store(true, std::memory_order_relaxed);
+        BeginWindow(*current_, WindowReason::Crossfade, 0, fadeFrames);
+        boundaryFrame_.store(framesWritten_, std::memory_order_release);
+    }
+    HRC_LOGI(kTag, "Crossfade: %zu frames starting at ring frame %lld", fadeFrames, static_cast<long long>(framesWritten_));
+
+    TrackSource& incoming = *current_;
+    const PcmFormat format = ringFormat_;
+    const size_t frameBytes = format.FrameBytes();
+    const size_t scratch = kMixChunkFrames * frameBytes;
+    if (mixA_.size() < scratch) mixA_.resize(scratch);
+    if (mixB_.size() < scratch) mixB_.resize(scratch);
+    if (mixOut_.size() < scratch) mixOut_.resize(scratch);
+
+    size_t done = 0;
+    size_t primedUsed = 0;
+    uint64_t incomingFrames = 0;   // frames of the incoming track consumed so far
+    bool incomingEnded = false;
+    while (done < fadeFrames) {
+        if (!decoderRunning_.load()) return false;
+        const size_t n = std::min(kMixChunkFrames, fadeFrames - done);
+        // Outgoing: the oldest held-back frames.
+        const size_t first = std::min(n, tailCap_ - tailHead_);
+        std::memcpy(mixA_.data(), tail_.data() + tailHead_ * frameBytes, first * frameBytes);
+        if (first < n) std::memcpy(mixA_.data() + first * frameBytes, tail_.data(), (n - first) * frameBytes);
+        tailHead_ = (tailHead_ + n) % tailCap_;
+        tailFrames_ -= n;
+        // Incoming: decoded ahead of time first, then from the decoder.
+        size_t got = 0;
+        if (primedUsed < primedFrames_) {
+            got = std::min(n, primedFrames_ - primedUsed);
+            std::memcpy(mixB_.data(), primed_.data() + primedUsed * frameBytes, got * frameBytes);
+            primedUsed += got;
+        }
+        while (got < n && !incomingEnded) {
+            const size_t r = incoming.decoder->ReadFrames(mixB_.data() + got * frameBytes, n - got);
+            if (r == 0) incomingEnded = true;
+            got += r;
+        }
+        incomingFrames += got;
+        if (got < n) std::memset(mixB_.data() + got * frameBytes, 0, (n - got) * frameBytes);  // too short: silence
+        mixer_.Mix(mixA_.data(), mixB_.data(), mixOut_.data(), n, format.channels, format.format, curve, done, fadeFrames);
+        if (!Commit(mixOut_.data(), n, format)) return false;
+        done += n;
+    }
+    ResetTail();
+    primedFrames_ = 0;
+    decodePos_ = incomingFrames;
+    if (incomingEnded) return true;   // the incoming track is over; the loop finishes it as usual
+
+    // The same track goes on, untouched. It is a window of its own so the receipt and the
+    // bit-exact claim for what follows the fade stand on that audio alone. Decoding carries on at
+    // once; the boundary is installed when the listener has crossed the one into the fade.
+    EndWindow();
+    continueWindow_ = nextWindowId_.fetch_add(1, std::memory_order_relaxed);
+    BeginWindow(incoming, WindowReason::Continue, incomingFrames, 0, continueWindow_);
+    continueFrame_ = framesWritten_;
+    pendingContinue_ = true;
+    TryInstallContinue();
+    return true;
 }
 
 bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
@@ -853,6 +1205,9 @@ bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
         state_.store(State::Error, std::memory_order_release);
         return false;
     }
+    ResetTail();
+    decodePos_ = 0;
+    primedFrames_ = 0;
     BeginWindow(*current_, WindowReason::Reopen, 0);
     transitions_.fetch_add(1, std::memory_order_release);
     if (playWhenReady_.load()) output_->Start();
@@ -877,16 +1232,25 @@ void PlaybackEngine::Render(void* out, int32_t numFrames, int64_t outputXruns) n
             OutputCheckpoint c{playingWindow_.load(std::memory_order_relaxed), rtWindowFrames_, rtHash_.Value(), 1, 0};
             outCheckRing_.TryPush(c);
             playingWindow_.store(boundaryWindow_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingTrackStart_.store(0, std::memory_order_relaxed);
-            playingRingStart_.store(boundary, std::memory_order_relaxed);
-            playingRate_.store(pendingRate_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingChannels_.store(pendingChannels_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingBits_.store(pendingBits_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingTotalFrames_.store(pendingTotalFrames_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            if (boundaryContinues_.load(std::memory_order_relaxed)) {
+                // The same track goes on after a crossfade: only the receipt window changes.
+                playingTrackStart_.store(playingTrackStart_.load(std::memory_order_relaxed) + rtWindowFrames_,
+                                         std::memory_order_relaxed);
+                playingRingStart_.store(boundary, std::memory_order_relaxed);
+                mixing_.store(false, std::memory_order_release);
+            } else {
+                playingTrackStart_.store(0, std::memory_order_relaxed);
+                playingRingStart_.store(boundary, std::memory_order_relaxed);
+                playingRate_.store(pendingRate_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingChannels_.store(pendingChannels_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingBits_.store(pendingBits_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingTotalFrames_.store(pendingTotalFrames_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                mixing_.store(boundaryMixes_.load(std::memory_order_relaxed), std::memory_order_release);
+                transitions_.fetch_add(1, std::memory_order_release);
+            }
             rtWindowFrames_ = 0;
             rtHash_.Reset();
             boundaryFrame_.store(-1, std::memory_order_release);
-            transitions_.fetch_add(1, std::memory_order_release);
             boundary = -1;
         }
         size_t segment = remaining;
@@ -904,6 +1268,7 @@ void PlaybackEngine::Render(void* out, int32_t numFrames, int64_t outputXruns) n
                     OutputCheckpoint c{playingWindow_.load(std::memory_order_relaxed), rtWindowFrames_, rtHash_.Value(), 1, 0};
                     outCheckRing_.TryPush(c);
                     rtEnded_.store(true, std::memory_order_relaxed);
+                    mixing_.store(false, std::memory_order_release);
                     state_.store(State::Ended, std::memory_order_release);
                 }
             } else if (!draining_.load(std::memory_order_acquire)) {
@@ -1077,11 +1442,14 @@ void PlaybackEngine::MergeRt(const RtRecord& r) noexcept {
         if (w) {
             t.source = w->source;
             t.has |= HRC_TELEMETRY_HAS_SOURCE;
-            if (w->reason != WindowReason::Seek) {
+            if (w->reason != WindowReason::Seek && w->reason != WindowReason::Continue) {
                 if (m.lastWindow != 0 && !m.endedReported) {
                     Emit(HRC_EVENT_TRACK_ENDED, m.lastTrack, static_cast<int64_t>(m.lastPosition));
                 }
                 Emit(HRC_EVENT_TRACK_STARTED, w->source.track_id, 0);
+                if (w->reason == WindowReason::Crossfade) {
+                    Emit(HRC_EVENT_CROSSFADE, w->source.track_id, static_cast<int64_t>(w->mixFrames));
+                }
                 if (w->reason == WindowReason::Reopen) {
                     Emit(HRC_EVENT_OUTPUT_REOPENED, w->source.track_id, outView_[kRate].load(std::memory_order_relaxed));
                 }
@@ -1151,9 +1519,11 @@ void PlaybackEngine::FillStatic(hrc_telemetry& t) noexcept {
     hrc_receipt& r = t.receipt;
     const bool compared = r.frames_compared > 0;
     const bool clean = t.counters.underruns == merger_.windowUnderrunsAtStart;
+    const DecoderRecord* receiptWindow = FindWindow(merger_.receiptWindow);
+    const bool mixed = receiptWindow != nullptr && receiptWindow->reason == WindowReason::Crossfade;
     if (!compared && r.first_mismatch_frame < 0) {
         r.grade = HRC_GRADE_NONE;
-    } else if (r.first_mismatch_frame >= 0 || !clean) {
+    } else if (r.first_mismatch_frame >= 0 || !clean || mixed) {   // a crossfade changes the samples
         r.grade = HRC_GRADE_BEST_EFFORT;
     } else if (o.kind == HRC_OUTPUT_B && o.backend == HRC_BACKEND_USB_EXCLUSIVE) {
         r.grade = HRC_GRADE_VERIFIED;

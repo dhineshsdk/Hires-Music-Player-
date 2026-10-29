@@ -21,8 +21,16 @@ class NativeAudioEngine {
 
     /** Opens a file descriptor; the engine takes ownership and closes it. */
     fun open(fd: Int): Boolean = nativeOpen(handle, fd)
-    /** Queues a file to play gaplessly after the current one; the engine takes ownership of fd. */
-    fun setNext(fd: Int): Boolean = nativeSetNext(handle, fd)
+    /**
+     * Queues a file to play after the current one; the engine takes ownership of fd. The change is
+     * gapless, or a crossfade when one is switched on and [allowCrossfade] is true for this file.
+     */
+    fun setNext(fd: Int, allowCrossfade: Boolean = true): Boolean = nativeSetNext(handle, fd, allowCrossfade)
+    /** Crossfade between consecutive tracks; off keeps every change gapless and bit-exact. */
+    fun setCrossfade(enabled: Boolean, durationMs: Int, curve: FadeCurve) =
+        nativeSetCrossfade(handle, enabled, durationMs, curve.code)
+    /** True while the audio is a mix of two tracks (so not the files' own samples). */
+    val isMixing: Boolean get() = nativeIsMixing(handle)
     fun clearNext() = nativeClearNext(handle)
     /** Count of gapless track changes since the last open(). */
     fun pollTransitions(): Int = nativePollTransitions(handle)
@@ -56,7 +64,9 @@ class NativeAudioEngine {
         @JvmStatic external fun nativeCreate(): Long
         @JvmStatic external fun nativeDestroy(handle: Long)
         @JvmStatic external fun nativeOpen(handle: Long, fd: Int): Boolean
-        @JvmStatic external fun nativeSetNext(handle: Long, fd: Int): Boolean
+        @JvmStatic external fun nativeSetNext(handle: Long, fd: Int, allowCrossfade: Boolean): Boolean
+        @JvmStatic external fun nativeSetCrossfade(handle: Long, enabled: Boolean, durationMs: Int, curve: Int)
+        @JvmStatic external fun nativeIsMixing(handle: Long): Boolean
         @JvmStatic external fun nativeClearNext(handle: Long)
         @JvmStatic external fun nativePollTransitions(handle: Long): Int
         @JvmStatic external fun nativeSetOutputFormat(handle: Long, encoding: Int, bitPerfect: Boolean)
