@@ -328,10 +328,21 @@ bool PlaybackEngine::OpenOutputLocked() {
         output_->Close();
         outputOpen_ = false;
     }
-    const OutputRequest request = RequestFor(ringFormat_);
+    OutputRequest request = RequestFor(ringFormat_);
     OutputInfo info{};
-    const bool ok = output_->Open(request, this, info) && info.channels == kOutputChannels &&
-                    SampleBytes(info.format) != 0 && info.format != HRC_SAMPLE_F64;
+    auto opened = [&] {
+        return output_->Open(request, this, info) && info.channels == kOutputChannels &&
+               SampleBytes(info.format) != 0 && info.format != HRC_SAMPLE_F64;
+    };
+    bool ok = opened();
+    if (!ok && !request.bitPerfect && request.format != HRC_SAMPLE_F32) {
+        // Some shared-mixer paths take only float. The conversion to it is lossless for 16 and
+        // 24-bit sources, and the mixer would convert to float anyway.
+        HRC_LOGI(kTag, "Shared output refused sample format %d, opening in float", request.format);
+        output_->Close();
+        request.format = HRC_SAMPLE_F32;
+        ok = opened();
+    }
     if (!ok) {
         output_->Close();
     } else {
@@ -515,11 +526,16 @@ hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
         default: return HRC_E_UNSUPPORTED;
     }
     std::lock_guard<std::mutex> lock(streamMutex_);
+    const bool bitPerfect = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
+    if (outputOpen_ && config.kind == outKind_ && config.format == outFormatConfig_ &&
+        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_) {
+        return HRC_OK;  // nothing changes, so keep the stream (no click on a repeated call)
+    }
     outKind_ = config.kind;
     outFormatConfig_ = config.format;
     outRateConfig_ = config.sample_rate;
     followsSource_.store(config.format == HRC_SAMPLE_UNKNOWN && config.sample_rate == 0, std::memory_order_release);
-    bitPerfect_ = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
+    bitPerfect_ = bitPerfect;
     if (!outputOpen_ || ringFormat_.sampleRate <= 0) return HRC_OK;
     // Reopen now. The ring keeps its source-format frames; only the final conversion changes.
     if (!OpenOutputLocked()) return HRC_E_OUTPUT_FAILED;
@@ -531,7 +547,8 @@ void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
     hrc_output_config config{};
     config.struct_size = sizeof(config);
     config.kind = HRC_OUTPUT_A;
-    config.format = encoding == kEncodingPcm16 ? HRC_SAMPLE_S16
+    config.format = encoding == kEncodingDefault ? HRC_SAMPLE_UNKNOWN
+                  : encoding == kEncodingPcm16 ? HRC_SAMPLE_S16
                   : encoding == kEncodingPcm24Packed ? HRC_SAMPLE_S24
                   : encoding == kEncodingPcm32 ? HRC_SAMPLE_S32 : HRC_SAMPLE_F32;
     config.flags = bitPerfect ? HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER : 0;
@@ -821,7 +838,6 @@ bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
     if (outputOpen_) output_->Stop();
     draining_.store(false, std::memory_order_release);
     if (!decoderRunning_.load()) return putBack();  // a seek or close is tearing down; it owns the output
-    const bool formatChanged = next->format.format != ringFormat_.format;
     {
         std::lock_guard<std::mutex> sourceLock(sourceMutex_);
         current_ = std::move(next);
@@ -830,9 +846,9 @@ bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
     eq_.RequestReset();
     PublishPlayingInfo(*current_);
     ResetRingLocked(current_->format, 0);
-    // A bit-perfect mixer is set for one format. After a format change the caller must set it
+    // A bit-perfect mixer is set for one rate and format. After a reopen the caller must set it
     // again (it learns of the reopen from HRC_EVENT_OUTPUT_REOPENED) before we claim it.
-    if (formatChanged) bitPerfect_ = false;
+    bitPerfect_ = false;
     if (!OpenOutputLocked()) {
         state_.store(State::Error, std::memory_order_release);
         return false;

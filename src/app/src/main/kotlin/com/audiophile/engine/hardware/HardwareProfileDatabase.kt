@@ -48,15 +48,15 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hidProtocol = HidDspProtocol.NONE,
                 hardwareNotes = "Dual Cirrus Logic CS43198 DACs on Rockchip RKNanoD controller. USB DAC mode is locked to UAC1 48 kHz (16/24-bit). Requires host libsoxr high-quality resampling.",
                 defaultDspPreset = DspRackState(
-                    tubeEnabled = true,
+                    tubeEnabled = false,
                     tubeModel = TubeModelType.TRIODE_12AX7,
                     tubeDrive = 1.35f,
                     transformerHysteresis = true,
-                    dcPhaseEnabled = true,
+                    dcPhaseEnabled = false,
                     dcPhasePreset = DcPhaseType.TYPE_A_STANDARD,
-                    iso226Enabled = true,
+                    iso226Enabled = false,
                     volumeAttenuationDb = -16.0f,
-                    virtualBassEnabled = true,
+                    virtualBassEnabled = false,
                     virtualBassAmount = 1.2f
                 )
             ),
@@ -73,10 +73,10 @@ class HardwareProfileDatabase(context: Context? = null) {
                 maxBitDepth = 24,
                 isAsynchronous = false,
                 defaultDspPreset = DspRackState(
-                    tubeEnabled = true,
+                    tubeEnabled = false,
                     tubeModel = TubeModelType.TRIODE_12AX7,
                     tubeDrive = 1.35f,
-                    dcPhaseEnabled = true,
+                    dcPhaseEnabled = false,
                     dcPhasePreset = DcPhaseType.TYPE_A_STANDARD
                 )
             ),
@@ -143,9 +143,9 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hidInterfaceIndex = 2,
                 hardwareNotes = "Dual ES9218P SABRE DACs with Qualcomm Bluetooth bridge and on-board 10-band hardware PEQ.",
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true,
+                    peqEnabled = false,
                     tubeEnabled = false,
-                    dcPhaseEnabled = true,
+                    dcPhaseEnabled = false,
                     dcPhasePreset = DcPhaseType.TYPE_B_STANDARD
                 )
             ),
@@ -166,7 +166,7 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hidInterfaceIndex = 3,
                 hardwareNotes = "Composite UAC + USB HID (Class 0x03). Flashes 9-band PEQ Direct Form II biquad coefficients in Q30 fixed-point format via Endpoint 0.",
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true,
+                    peqEnabled = false,
                     peqBands = listOf(
                         BiquadBand(0, 31.5f, 3.5f, 0.71f, FilterTopology.LOW_SHELF),
                         BiquadBand(1, 63.0f, 2.0f, 1.0f, FilterTopology.PEAKING),
@@ -179,7 +179,7 @@ class HardwareProfileDatabase(context: Context? = null) {
                         BiquadBand(8, 8000.0f, 1.0f, 1.5f, FilterTopology.PEAKING),
                         BiquadBand(9, 12500.0f, 1.5f, 0.71f, FilterTopology.HIGH_SHELF)
                     ),
-                    virtualBassEnabled = true,
+                    virtualBassEnabled = false,
                     virtualBassAmount = 1.3f
                 )
             ),
@@ -196,8 +196,8 @@ class HardwareProfileDatabase(context: Context? = null) {
                 maxBitDepth = 24,
                 hidProtocol = HidDspProtocol.MOONDROP_FREEDSP_Q30,
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true,
-                    virtualBassEnabled = true
+                    peqEnabled = false,
+                    virtualBassEnabled = false
                 )
             ),
 
@@ -216,8 +216,8 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hidInterfaceIndex = 2,
                 hardwareNotes = "Uses 0x5A 0x20 frame protocol with frequency, centibel gain, and centi-Q values.",
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true,
-                    virtualBassEnabled = true
+                    peqEnabled = false,
+                    virtualBassEnabled = false
                 )
             ),
 
@@ -234,7 +234,7 @@ class HardwareProfileDatabase(context: Context? = null) {
                 maxBitDepth = 24,
                 hidProtocol = HidDspProtocol.KTMICRO_CONTROL,
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true
+                    peqEnabled = false
                 )
             ),
 
@@ -255,10 +255,10 @@ class HardwareProfileDatabase(context: Context? = null) {
                 supportsDop = true,
                 hardwareNotes = "16-core xCORE-VOICE/AUDIO processor. Full Native DSD_U32_BE support with ultra-low phase jitter.",
                 defaultDspPreset = DspRackState(
-                    r2rEnabled = true, // Virtual R2R NOS flavor
+                    r2rEnabled = false, // Virtual R2R NOS flavor
                     r2rMismatchSigma = 0.0008f,
                     r2rSincCompensation = true,
-                    dcPhaseEnabled = true,
+                    dcPhaseEnabled = false,
                     dcPhasePreset = DcPhaseType.TYPE_A_STANDARD
                 )
             ),
@@ -312,8 +312,8 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hidProtocol = HidDspProtocol.KTMICRO_CONTROL,
                 hardwareNotes = "KTMicro KT0231H custom DSP controller with integrated hybrid dynamic/planar driver tuning.",
                 defaultDspPreset = DspRackState(
-                    peqEnabled = true,
-                    virtualBassEnabled = true,
+                    peqEnabled = false,
+                    virtualBassEnabled = false,
                     virtualBassAmount = 1.1f
                 )
             ),
@@ -408,7 +408,7 @@ class HardwareProfileDatabase(context: Context? = null) {
                 hardwareNotes = "Discrete 24-bit R-2R resistor ladder (RU6) / 1-bit all-to-DSD discrete bridge (RU7). True NOS character.",
                 defaultDspPreset = DspRackState(
                     r2rEnabled = false, // Physical hardware is already true discrete R-2R!
-                    dcPhaseEnabled = true,
+                    dcPhaseEnabled = false,
                     dcPhasePreset = DcPhaseType.TYPE_A_STANDARD
                 )
             ),

@@ -166,7 +166,7 @@ data class DspRackState(
     val impulseResponseName: String = "None (Bypassed)",
 
     // 4. Linear Acoustic Styles & Phase
-    val dcPhaseEnabled: Boolean = true,
+    val dcPhaseEnabled: Boolean = false,
     val dcPhasePreset: DcPhaseType = DcPhaseType.TYPE_A_STANDARD,
     val vinylEnabled: Boolean = false,
     val vinylTonearmResonance: Float = 1.5f, // 0.0 to 3.0
@@ -175,7 +175,7 @@ data class DspRackState(
     val vinylPlatterRumble: Float = 0.5f,
 
     // 5. Shared Oversampled Nonlinear Block (Tube -> Tape -> R2R)
-    val tubeEnabled: Boolean = true,
+    val tubeEnabled: Boolean = false,
     val tubeModel: TubeModelType = TubeModelType.TRIODE_12AX7,
     val tubeDrive: Float = 1.25f, // 0.1x to 5.0x
     val transformerHysteresis: Boolean = true,
@@ -187,40 +187,27 @@ data class DspRackState(
 
     // 6. Spatial (Crossfeed & Sub-Bass Enhancer)
     val crossfeedEnabled: Boolean = false,
-    val virtualBassEnabled: Boolean = true,
+    val virtualBassEnabled: Boolean = false,
     val virtualBassAmount: Float = 1.1f, // 0.0 to 2.0
 
     // 7. ISO 226:2023 Dynamic Equal-Loudness
-    val iso226Enabled: Boolean = true,
+    val iso226Enabled: Boolean = false,
     val volumeAttenuationDb: Float = -18.0f, // -60dB to 0dB
 
     // 8. Limiter & Dither Stage
-    val limiterEnabled: Boolean = true,
+    val limiterEnabled: Boolean = false,
 
     // Master DSP Bypass
     val isMasterBypassed: Boolean = false
 ) {
     /**
-     * Determines whether any DSP stage is actively altering the audio stream.
-     * When false or master bypassed, the engine remains in bit-exact bypass without float promotion.
+     * Whether a DSP stage the engine actually runs is changing the samples. Today that is only
+     * the parametric EQ with a non-flat band; the other stages are not built in the engine yet,
+     * so switching them on changes nothing and must not mark the path as processed.
+     * When false, the engine stays in bit-exact bypass without float promotion.
      */
     val isAnyStageActive: Boolean
-        get() {
-            if (isMasterBypassed) return false
-            val peqActive = peqEnabled && peqBands.any { it.isEnabled && abs(it.gainDb) >= 0.01f }
-            val dcPhaseActive = dcPhaseEnabled && dcPhasePreset != DcPhaseType.OFF
-            val tubeActive = tubeEnabled
-            val tapeActive = tapeEnabled
-            val r2rActive = r2rEnabled
-            val vinylActive = vinylEnabled
-            val convActive = convolutionEnabled
-            val bassActive = virtualBassEnabled && virtualBassAmount > 0.01f
-            val crossActive = crossfeedEnabled
-            val isoActive = iso226Enabled && abs(volumeAttenuationDb) > 0.01f
-            val rgActive = replayGainEnabled && abs(replayGainPreampDb) > 0.01f
-            return peqActive || dcPhaseActive || tubeActive || tapeActive || r2rActive ||
-                   vinylActive || convActive || bassActive || crossActive || isoActive || rgActive
-        }
+        get() = !isMasterBypassed && peqEnabled && peqBands.any { it.isEnabled && abs(it.gainDb) >= 0.01f }
 
     /**
      * Computes the aggregated magnitude curve in dB for all 10 bands at evalFreqHz

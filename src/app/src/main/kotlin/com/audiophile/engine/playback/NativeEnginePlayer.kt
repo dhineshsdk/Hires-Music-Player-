@@ -9,6 +9,7 @@ import android.net.Uri
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Handler
@@ -60,6 +61,8 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
 
     private val router = BitPerfectRouter(audioManager)
     private var bitPerfectEnabled = true
+    // The EQ is changing samples, so the shared stream is opened in float (no requantizing on our side).
+    private var eqActive = false
     private val _route = MutableStateFlow(BitPerfectRouter.SHARED)
     /** Current output route: bit-perfect USB or the shared mixer. */
     val route: StateFlow<BitPerfectRouter.Route> = _route.asStateFlow()
@@ -145,13 +148,19 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             state.evaluateTotalEqMagnitudeDb(hz.toFloat())
         }.coerceAtLeast(0.0)
         engine.setEq(enabled, -maxBoostDb, bands)
+        val active = state.isAnyStageActive
+        if (active != eqActive) {
+            eqActive = active
+            applyRoute()
+        }
     }
 
     private fun applyRoute() {
         if (preparedIndex < 0) return
         val format = engine.format
         val route = router.routeFor(format.sampleRateHz, format.bitDepth, bitPerfectEnabled)
-        engine.setOutputFormat(route.encoding, route.bitPerfect)
+        val encoding = if (!route.bitPerfect && eqActive) AudioFormat.ENCODING_PCM_FLOAT else route.encoding
+        engine.setOutputFormat(encoding, route.bitPerfect)
         _route.value = route
         _engineFormat.value = engine.format
     }
@@ -338,7 +347,8 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                     android.os.ParcelFileDescriptor.adoptFd(fd).close()
                     return@post
                 }
-                // A different sample rate is not queued by the engine; that track opens normally at the end.
+                // A different format plays on after a reopen on the shared route; on the bit-perfect route
+                // the engine stops at the boundary and that track opens normally.
                 if (!engine.setNext(fd)) Log.w(TAG, "Engine could not preload $uri")
             }
         }
@@ -346,12 +356,19 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
 
     /** The engine moved into the queued track without a gap. */
     private fun onGaplessTransition(transitions: Int) {
+        val previous = _engineFormat.value
         seenTransitions = transitions
         currentIndex += 1
         preparedIndex = currentIndex
         openGeneration++
         durationMs = engine.durationMs
-        _engineFormat.value = engine.format
+        val format = engine.format
+        _engineFormat.value = format
+        // On the shared route the engine reopens itself for a new format; pick the route again so
+        // a DAC with a bit-perfect mixer at the new rate gets it.
+        if (previous != null && (previous.sampleRateHz != format.sampleRateHz || previous.bitDepth != format.bitDepth)) {
+            applyRoute()
+        }
         preloadNext()
         invalidateState()
     }
