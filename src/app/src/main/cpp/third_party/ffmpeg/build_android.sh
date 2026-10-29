@@ -26,8 +26,8 @@ fi
 cd "$SRC"
 make distclean >/dev/null 2>&1 || true
 
-# SLIBNAME_WITH_MAJOR / SLIB_INSTALL_NAME give plain libavcodec.so names: Android's loader and
-# Gradle's packaging do not handle versioned sonames. 16 KB page alignment is required on Android 15+.
+# Plain libavcodec.so names (see SOFLAGS below): Android's loader and Gradle's packaging do not handle
+# versioned sonames. 16 KB page alignment is required on Android 15+.
 ./configure \
     --prefix="$OUT" --libdir="$OUT/lib/$ABI" \
     --target-os=android --arch=aarch64 --enable-cross-compile \
@@ -43,12 +43,14 @@ make distclean >/dev/null 2>&1 || true
     --enable-parser=aac,aac_latm,mpegaudio,vorbis,opus,flac,tak \
     --enable-decoder=alac,aac,aac_latm,ape,wavpack,mp3,mp3float,mp2float,vorbis,opus,flac,tta,tak,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_f64be,pcm_u8 \
     --extra-cflags="-fPIC -O2" \
-    --extra-ldflags="-Wl,-z,max-page-size=16384" \
-    SLIBNAME_WITH_VERSION='$(SLIBNAME)' SLIBNAME_WITH_MAJOR='$(SLIBNAME)' \
-    LIB_INSTALL_EXTRA_CMD=: SLIB_INSTALL_NAME='$(SLIBNAME)' SLIB_INSTALL_LINKS=
+    --extra-ldflags="-Wl,-z,max-page-size=16384"
 
-make -j"$(nproc)"
-make install
+# These are make variables, not configure options. Checked on a host build: the .so files come out
+# as plain libavcodec.so with SONAME libavcodec.so.
+SOFLAGS=(SLIBNAME_WITH_VERSION='$(SLIBNAME)' SLIBNAME_WITH_MAJOR='$(SLIBNAME)'
+         LIB_INSTALL_EXTRA_CMD=: SLIB_INSTALL_NAME='$(SLIBNAME)' SLIB_INSTALL_LINKS=)
+make -j"$(nproc)" "${SOFLAGS[@]}"
+make install "${SOFLAGS[@]}"
 
 echo "FFmpeg $TAG installed to $OUT"
 echo "License check (must say LGPL):"
