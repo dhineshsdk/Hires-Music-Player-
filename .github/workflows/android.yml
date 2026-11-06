@@ -74,6 +74,9 @@ jobs:
       - name: Build debug APK
         run: ./gradlew --no-daemon --continue assembleDebug
 
+      - name: Run JVM unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

@@ -88,6 +88,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")  // android.jar's org.json is a stub in unit tests
+    // The fake HTTP servers in the tests use com.sun.net.httpserver, which is not in the Android
+    // unit-test compile classpath. Compile-only: at run time the JDK supplies the real classes.
+    testCompileOnly("com.sun.net.httpserver:http:20070405")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
