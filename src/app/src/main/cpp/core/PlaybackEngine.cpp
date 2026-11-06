@@ -1,4 +1,7 @@
 #include "PlaybackEngine.hpp"
+#if defined(__linux__)
+#include "LinuxUsbfsIo.hpp"
+#endif
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -11,6 +14,7 @@
 #include "../decoders/FlacDecoder.hpp"
 #include "../decoders/ReadAheadSource.hpp"
 #include "../decoders/WavDecoder.hpp"
+#include "ExynosThreadGovernor.hpp"
 #include "Log.hpp"
 #include "PcmConvert.hpp"
 #include "PcmEncoding.hpp"
@@ -282,7 +286,14 @@ uint64_t TrackSource::PositionFrames() const noexcept {
 // ---------------------------------------------------------------------------
 
 PlaybackEngine::PlaybackEngine(std::unique_ptr<AudioOutput> output)
-    : output_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    : outputA_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    output_ = outputA_.get();
+#if defined(__linux__)
+    usbFactory_ = [](int fd, int iface) -> std::unique_ptr<AudioOutput> {
+        return std::make_unique<UsbExclusiveOutput>(std::make_unique<Drivers::LinuxUsbfsIo>(fd), iface,
+                                                    ExynosThreadGovernor::CLUSTER_1_USB_PUMP);
+    };
+#endif
     merger_.snapshot.receipt.hash_algorithm = HRC_HASH_FNV1A64_CANONICAL;
     merger_.snapshot.receipt.first_mismatch_frame = -1;
     PublishDspStages();
@@ -542,8 +553,11 @@ hrc_result PlaybackEngine::Close() {
 }
 
 hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
-    if (config.kind == HRC_OUTPUT_B) return HRC_E_NOT_BUILT;  // the usbfs driver is Phase 5
-    if (config.kind != HRC_OUTPUT_A) return HRC_E_INVALID_ARG;
+    if (config.kind != HRC_OUTPUT_A && config.kind != HRC_OUTPUT_B) return HRC_E_INVALID_ARG;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (config.usb_fd < 0) return HRC_E_INVALID_ARG;
+        if (!usbFactory_) return HRC_E_NOT_BUILT;
+    }
     if (config.sample_rate != 0) return HRC_E_UNSUPPORTED;    // needs the engine resampler (libsoxr), not built
     switch (config.format) {
         case HRC_SAMPLE_UNKNOWN: case HRC_SAMPLE_S16: case HRC_SAMPLE_S24:
@@ -553,19 +567,52 @@ hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
     std::lock_guard<std::mutex> lock(streamMutex_);
     const bool bitPerfect = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
     if (outputOpen_ && config.kind == outKind_ && config.format == outFormatConfig_ &&
-        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_) {
+        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_ &&
+        (config.kind != HRC_OUTPUT_B || (config.usb_fd == usbFd_ && config.usb_interface == usbInterface_))) {
         return HRC_OK;  // nothing changes, so keep the stream (no click on a repeated call)
+    }
+    // Move to the output the user chose. The old one is closed first so only one ever holds the DAC.
+    const bool wasOpen = outputOpen_;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
+        outputB_ = usbFactory_(config.usb_fd, config.usb_interface);
+        if (!outputB_) return HRC_E_OUTPUT_FAILED;
+        output_ = outputB_.get();
+        usbFd_ = config.usb_fd;
+        usbInterface_ = config.usb_interface;
+    } else if (output_ != outputA_.get()) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
     }
     outKind_ = config.kind;
     outFormatConfig_ = config.format;
     outRateConfig_ = config.sample_rate;
     followsSource_.store(config.format == HRC_SAMPLE_UNKNOWN && config.sample_rate == 0, std::memory_order_release);
     bitPerfect_ = bitPerfect;
-    if (!outputOpen_ || ringFormat_.sampleRate <= 0) return HRC_OK;
+    if (!wasOpen || ringFormat_.sampleRate <= 0) return HRC_OK;
     // Reopen now. The ring keeps its source-format frames; only the final conversion changes.
-    if (!OpenOutputLocked()) return HRC_E_OUTPUT_FAILED;
-    if (GetState() == State::Playing && !output_->Start()) return HRC_E_OUTPUT_FAILED;
+    if (!OpenOutputLocked() || (GetState() == State::Playing && !output_->Start())) {
+        if (outKind_ == HRC_OUTPUT_B) FallBackToOutputALocked();   // never leave the user with no sound path
+        return HRC_E_OUTPUT_FAILED;
+    }
     return HRC_OK;
+}
+
+void PlaybackEngine::SetUsbOutputFactory(UsbOutputFactory factory) {
+    std::lock_guard<std::mutex> lock(streamMutex_);
+    usbFactory_ = std::move(factory);
+}
+
+// Output B could not open or died: go back to Output A so playback can continue. streamMutex_ held.
+void PlaybackEngine::FallBackToOutputALocked() {
+    if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+    output_ = outputA_.get();
+    outputB_.reset();
+    outKind_ = HRC_OUTPUT_A;
+    if (ringFormat_.sampleRate > 0 && OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 
 void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
@@ -643,7 +690,12 @@ void PlaybackEngine::OnOutputLost() noexcept {
     output_->Close();
     outputOpen_ = false;
     if (GetState() == State::Idle || ringFormat_.sampleRate <= 0) return;
-    // Reopen on whatever device is now current.
+    // Reopen on whatever device is now current. A lost USB DAC means going back to Output A.
+    if (outKind_ == HRC_OUTPUT_B) {
+        if (OpenOutputLocked() && playWhenReady_.load() && output_->Start()) return;
+        FallBackToOutputALocked();
+        return;
+    }
     if (OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 

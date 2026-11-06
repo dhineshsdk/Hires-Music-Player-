@@ -15,6 +15,7 @@
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
 #include "DspChain.hpp"
+#include "UsbExclusiveOutput.hpp"
 #include "PcmReceipt.hpp"
 #include "hires_core.h"
 
@@ -119,6 +120,9 @@ public:
     hrc_result SeekToMs(int64_t positionMs);
     hrc_result Close();
     hrc_result SetOutput(const hrc_output_config& config);
+    // How Output B is built from (usbFd, interface). The default drives the real device through usbfs;
+    // tests install one that drives a simulated DAC. Call before SetOutput.
+    void SetUsbOutputFactory(UsbOutputFactory factory);
 
     // C API consumer side.
     void ReadTelemetry(hrc_telemetry& out) noexcept;
@@ -214,6 +218,7 @@ private:
 
     // Real-time helpers.
     size_t RenderSegment(uint8_t* out, size_t frames) noexcept;
+    void FallBackToOutputALocked();
     void PublishDspStages() noexcept;
     void Dither(float* stereo, size_t frames) noexcept;
     void HashOutput(const uint8_t* data, size_t frames) noexcept;
@@ -227,7 +232,10 @@ private:
     void FillStatic(hrc_telemetry& t) noexcept;
     bool Drain() noexcept;
 
-    std::unique_ptr<AudioOutput> output_;
+    std::unique_ptr<AudioOutput> outputA_;   // Oboe / AAudio (or a test output)
+    std::unique_ptr<AudioOutput> outputB_;   // usbfs, created while Output B is selected
+    AudioOutput* output_{nullptr};           // whichever of the two is selected; guarded by streamMutex_
+    UsbOutputFactory usbFactory_;
 
     // Sources. current_ belongs to the decoder thread while it runs; next_ and retired_ are
     // guarded by sourceMutex_ (control and decoder threads only).
@@ -281,6 +289,8 @@ private:
     std::atomic<bool> followsSource_{true};          // read by the decoder thread without streamMutex_
     bool bitPerfect_{false};
     hrc_output_kind outKind_{HRC_OUTPUT_A};
+    int usbFd_{-1};
+    int usbInterface_{-1};
     std::atomic<int32_t> outRate_{0};
     std::atomic<int32_t> outFormatAtomic_{HRC_SAMPLE_F32};
 

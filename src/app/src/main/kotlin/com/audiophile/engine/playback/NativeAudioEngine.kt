@@ -40,6 +40,12 @@ class NativeAudioEngine {
     fun setEq(enabled: Boolean, preampDb: Double, bands: DoubleArray) = nativeSetEq(handle, enabled, preampDb, bands)
     /** Everything after the EQ in the fixed chain (gain, phase/vinyl, tube/tape/R2R, crossfeed/sub-bass, loudness, limiter). */
     fun setDsp(settings: DspSettings) = nativeSetDsp(handle, settings.toArray())
+    /**
+     * Output B: play straight to a USB DAC through usbfs. [fd] is UsbDeviceConnection.fileDescriptor (the caller
+     * keeps the connection open); [usbInterface] the streaming interface, or -1 for the first playback one.
+     * Returns 0, or a negative HRC_* code (the engine then stays on Output A). [setOutputFormat] returns to Output A.
+     */
+    fun selectUsbOutput(fd: Int, usbInterface: Int = -1): Int = nativeSelectUsbOutput(handle, fd, usbInterface)
     fun play() = nativePlay(handle)
     fun pause() = nativePause(handle)
     fun seekTo(positionMs: Long) = nativeSeekTo(handle, positionMs)
@@ -74,6 +80,7 @@ class NativeAudioEngine {
         @JvmStatic external fun nativeSetOutputFormat(handle: Long, encoding: Int, bitPerfect: Boolean)
         @JvmStatic external fun nativeSetEq(handle: Long, enabled: Boolean, preampDb: Double, bands: DoubleArray)
         @JvmStatic external fun nativeSetDsp(handle: Long, values: DoubleArray)
+        @JvmStatic external fun nativeSelectUsbOutput(handle: Long, fd: Int, usbInterface: Int): Int
         @JvmStatic external fun nativePlay(handle: Long)
         @JvmStatic external fun nativePause(handle: Long)
         @JvmStatic external fun nativeSeekTo(handle: Long, positionMs: Long)

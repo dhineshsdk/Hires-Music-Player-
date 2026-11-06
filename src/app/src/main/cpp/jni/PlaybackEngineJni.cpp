@@ -107,6 +107,19 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetDsp(JNIEnv* env, 
     FromHandle(handle)->SetDsp(s);
 }
 
+// Selects Output B on a UsbDeviceConnection's file descriptor (not owned; keep the connection open).
+// Returns an HRC_* result: 0 on success, HRC_E_OUTPUT_FAILED (and Output A stays selected) if the DAC refuses.
+JNIEXPORT jint JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSelectUsbOutput(JNIEnv*, jclass, jlong handle, jint fd, jint usbInterface) {
+    hrc_output_config config{};
+    config.struct_size = sizeof(config);
+    config.kind = HRC_OUTPUT_B;
+    config.format = HRC_SAMPLE_UNKNOWN;
+    config.usb_fd = fd;
+    config.usb_interface = usbInterface;
+    return FromHandle(handle)->SetOutput(config);
+}
+
 JNIEXPORT void JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativePlay(JNIEnv*, jclass, jlong handle) {
     FromHandle(handle)->Play();

@@ -9,9 +9,10 @@ cpp="$here/../../main/cpp"
 out="${1:-$(mktemp -d)}"
 mkdir -p "$out"
 
-srcs=("$cpp/core/PlaybackEngine.cpp" "$cpp/core/HiresCore.cpp" "$cpp/decoders/WavDecoder.cpp"
+srcs=("$cpp/core/PlaybackEngine.cpp" "$cpp/core/HiresCore.cpp" "$cpp/core/UsbExclusiveOutput.cpp" "$cpp/core/ExynosThreadGovernor.cpp"
+      "$cpp/drivers/UsbIsoPump.cpp" "$cpp/decoders/WavDecoder.cpp"
       "$cpp/decoders/FlacDecoder.cpp" "$cpp/decoders/DsdDecoder.cpp" "$cpp/decoders/ReadAheadSource.cpp")
-inc=(-I"$cpp/core" -I"$cpp/dsp" -I"$cpp/decoders")
+inc=(-I"$cpp/core" -I"$cpp/dsp" -I"$cpp/decoders" -I"$cpp/drivers")
 libs=(-lFLAC)
 defs=()
 if pkg-config --exists libavformat libavcodec libavutil 2>/dev/null; then
