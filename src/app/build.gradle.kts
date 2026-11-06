@@ -28,6 +28,17 @@ android {
         }
     }
 
+    signingConfigs {
+        // Debug-only key committed on purpose: every build (CI or local) is signed identically,
+        // so new builds install over old ones and keep app data. Never use for release.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
