@@ -50,6 +50,8 @@ jobs:
           ./null_test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
           ./dsp_suite_test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_chain_test.cpp -o dsp_chain_test
+          ./dsp_chain_test
           # Lossy-file gapless trimming and exact seeks, then the engine end to end (gapless, pre-decode,
           # crossfade) under ASan+UBSan and TSan.
           bash run_wp1_host_tests.sh

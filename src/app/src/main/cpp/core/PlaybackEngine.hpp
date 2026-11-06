@@ -14,6 +14,7 @@
 #include "EngineTelemetry.hpp"
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
+#include "DspChain.hpp"
 #include "PcmReceipt.hpp"
 #include "hires_core.h"
 
@@ -146,6 +147,8 @@ public:
 
     // Parametric EQ applied in the output callback. Flat or disabled leaves samples untouched.
     void SetEq(const DSP::ParametricEq::Band* bands, int count, double preampDb, bool enabled);
+    // The rest of the fixed DSP chain (gain, phase/vinyl, tube/tape/R2R, crossfeed/sub-bass, loudness, limiter).
+    void SetDsp(const DSP::DspSettings& settings);
 
     State GetState() const noexcept;
     int64_t GetPositionMs() const noexcept;
@@ -211,6 +214,8 @@ private:
 
     // Real-time helpers.
     size_t RenderSegment(uint8_t* out, size_t frames) noexcept;
+    void PublishDspStages() noexcept;
+    void Dither(float* stereo, size_t frames) noexcept;
     void HashOutput(const uint8_t* data, size_t frames) noexcept;
 
     // Consumer helpers.
@@ -332,6 +337,13 @@ private:
     // DSP
     DSP::ParametricEq eq_;
     std::atomic<uint32_t> peqFlags_{HRC_STAGE_BUILT | HRC_STAGE_BYPASSED};
+    DSP::DspChain dsp_;
+    std::atomic<bool> dspActive_{false};
+    // Telemetry view of the chain, published by SetDsp (index = HRC_STAGE_*).
+    std::array<std::atomic<uint32_t>, HRC_STAGE_COUNT> stageFlags_{};
+    std::array<std::atomic<uint32_t>, HRC_STAGE_COUNT> stageLatency_{};
+    std::atomic<uint32_t> nonlinearOversample_{1};
+    uint64_t ditherState_{0x9E3779B97F4A7C15ull};
     std::array<float, kScratchFrames * kOutputChannels> floatScratch_{};
     std::array<uint8_t, kScratchFrames * 8 * kOutputChannels> byteScratch_{};
 

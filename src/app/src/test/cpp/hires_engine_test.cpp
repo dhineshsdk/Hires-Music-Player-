@@ -347,6 +347,47 @@ void TestDspChangesReceipt() {
     Check(mismatchEvent, "RECEIPT_MISMATCH event");
 }
 
+void TestDspChainStages() {
+    using Audiophile::Core::PlaybackEngine;
+    using Audiophile::Core::TrackSource;
+    auto run = [](bool chainOn, hrc_telemetry& t) {
+        auto output = std::make_unique<ManualOutput>();
+        ManualOutput* out = output.get();
+        PlaybackEngine engine(std::move(output));
+        const Wav a = MakeWav(44100, 2, 16, 40000, 8);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&a.file, &releases}, 9, err);
+        Check(err == HRC_OK && engine.Open(std::move(track)) == HRC_OK, "open (C++)");
+        Audiophile::DSP::DspSettings s;
+        s.tubeEnabled = chainOn;
+        s.crossfeedEnabled = chainOn;
+        s.limiterEnabled = chainOn;
+        s.outputGainDb = chainOn ? -3.0 : 0.0;
+        engine.SetDsp(s);
+        Sleep(50);
+        engine.Play();
+        uint8_t buf[512 * 2 * 8];
+        for (int i = 0; i < 200 && engine.GetState() != PlaybackEngine::State::Ended; ++i) out->Pull(buf, 512);
+        t = hrc_telemetry{};
+        t.struct_size = sizeof(t);
+        engine.ReadTelemetry(t);
+    };
+    hrc_telemetry on{}, off{};
+    run(true, on);
+    Check(on.stages[HRC_STAGE_NONLINEAR].oversample_factor == 8, "44.1 kHz nonlinear block runs 8x");
+    Check(on.stages[HRC_STAGE_NONLINEAR].latency_frames > 0, "oversampler reports its latency");
+    Check(!(on.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED) && !(on.stages[HRC_STAGE_SPATIAL].flags & HRC_STAGE_BYPASSED) &&
+              !(on.stages[HRC_STAGE_OUTPUT].flags & HRC_STAGE_BYPASSED),
+          "tube, crossfeed and output stage report active");
+    Check(on.stages[HRC_STAGE_LINEAR_STYLE].flags & HRC_STAGE_BYPASSED, "untouched stages stay bypassed");
+    Check(on.receipt.first_mismatch_frame >= 0 && on.receipt.grade == HRC_GRADE_BEST_EFFORT, "DSP chain breaks the receipt");
+    run(false, off);
+    Check(off.stages[HRC_STAGE_NONLINEAR].oversample_factor == 1 && (off.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED),
+          "block skipped with all nonlinear stages off");
+    Check(off.receipt.first_mismatch_frame == -1 && off.receipt.frames_compared > 0, "all stages off: bit-exact, receipt matches");
+}
+
 void TestErrorsAndOwnership() {
     ManualOutput* out = nullptr;
     hrc_engine* e = NewEngine(out);
@@ -815,6 +856,7 @@ int main(int argc, char** argv) {
     TestReopenAtFormatChange();
     TestSeekAndFixedFormatStop();
     TestDspChangesReceipt();
+    TestDspChainStages();
     TestErrorsAndOwnership();
     TestLegacySharedFollowsSource();
     TestFadeCurves();

@@ -84,6 +84,29 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetEq(JNIEnv* env, j
     FromHandle(handle)->SetEq(parsed, count, preampDb, enabled == JNI_TRUE);
 }
 
+// values: the DspSettings fields in the order of DspSettings.toArray() on the Kotlin side (booleans as 0/1).
+JNIEXPORT void JNICALL
+Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetDsp(JNIEnv* env, jclass, jlong handle, jdoubleArray values) {
+    constexpr int kCount = 24;
+    jdouble v[kCount] = {};
+    const jsize length = values ? env->GetArrayLength(values) : 0;
+    if (length < kCount) return;
+    env->GetDoubleArrayRegion(values, 0, kCount, v);
+    Audiophile::DSP::DspSettings s;
+    s.inputGainEnabled = v[0] != 0.0;  s.inputGainDb = v[1];
+    s.phaseEnabled = v[2] != 0.0;      s.phaseAmount = static_cast<int>(v[3]);
+    s.vinylEnabled = v[4] != 0.0;      s.vinylCrosstalkDb = v[5];      s.vinylResonanceDb = v[6];
+    s.tubeEnabled = v[7] != 0.0;       s.tubeType = static_cast<int>(v[8]); s.tubeDrive = v[9];
+    s.tapeEnabled = v[10] != 0.0;      s.tapeDrive = v[11];
+    s.r2rEnabled = v[12] != 0.0;       s.r2rMismatchPercent = v[13];
+    s.crossfeedEnabled = v[14] != 0.0; s.crossfeedDb = v[15];
+    s.subBassEnabled = v[16] != 0.0;   s.subBassAmount = v[17];
+    s.loudnessEnabled = v[18] != 0.0;  s.loudnessReferencePhon = v[19];
+    s.limiterEnabled = v[20] != 0.0;   s.limiterCeilingDb = v[21];
+    s.outputGainDb = v[22];
+    FromHandle(handle)->SetDsp(s);
+}
+
 JNIEXPORT void JNICALL
 Java_com_audiophile_engine_playback_NativeAudioEngine_nativePlay(JNIEnv*, jclass, jlong handle) {
     FromHandle(handle)->Play();

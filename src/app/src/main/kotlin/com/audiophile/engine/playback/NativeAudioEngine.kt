@@ -38,6 +38,8 @@ class NativeAudioEngine {
     fun setOutputFormat(encoding: Int, bitPerfect: Boolean) = nativeSetOutputFormat(handle, encoding, bitPerfect)
     /** Parametric EQ; [bands] is {type, frequencyHz, gainDb, q, enabled} per band, flattened. */
     fun setEq(enabled: Boolean, preampDb: Double, bands: DoubleArray) = nativeSetEq(handle, enabled, preampDb, bands)
+    /** Everything after the EQ in the fixed chain (gain, phase/vinyl, tube/tape/R2R, crossfeed/sub-bass, loudness, limiter). */
+    fun setDsp(settings: DspSettings) = nativeSetDsp(handle, settings.toArray())
     fun play() = nativePlay(handle)
     fun pause() = nativePause(handle)
     fun seekTo(positionMs: Long) = nativeSeekTo(handle, positionMs)
@@ -71,6 +73,7 @@ class NativeAudioEngine {
         @JvmStatic external fun nativePollTransitions(handle: Long): Int
         @JvmStatic external fun nativeSetOutputFormat(handle: Long, encoding: Int, bitPerfect: Boolean)
         @JvmStatic external fun nativeSetEq(handle: Long, enabled: Boolean, preampDb: Double, bands: DoubleArray)
+        @JvmStatic external fun nativeSetDsp(handle: Long, values: DoubleArray)
         @JvmStatic external fun nativePlay(handle: Long)
         @JvmStatic external fun nativePause(handle: Long)
         @JvmStatic external fun nativeSeekTo(handle: Long, positionMs: Long)
