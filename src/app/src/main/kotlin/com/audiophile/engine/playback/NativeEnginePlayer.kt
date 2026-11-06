@@ -160,7 +160,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         transitions.allowsFade(albumKeyOf(nextIndex - 1), albumKeyOf(nextIndex))
 
     /**
-     * Applies the DSP rack's parametric EQ in the engine. A preamp equal to the largest boost
+     * Applies the DSP rack in the engine: the parametric EQ and every other stage the engine runs (convolution is not built). A preamp equal to the largest boost
      * keeps the curve from clipping. Flat or bypassed leaves the stream bit-perfect.
      */
     fun setDsp(state: DspRackState) {
@@ -184,6 +184,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             state.evaluateTotalEqMagnitudeDb(hz.toFloat())
         }.coerceAtLeast(0.0)
         engine.setEq(enabled, -maxBoostDb, bands)
+        engine.setDsp(state.toEngineSettings())
         val active = state.isAnyStageActive
         if (active != eqActive) {
             eqActive = active

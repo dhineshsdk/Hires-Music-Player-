@@ -1,5 +1,7 @@
 package com.audiophile.engine.model
 
+import com.audiophile.engine.playback.DspSettings
+
 import kotlin.math.*
 
 /**
@@ -207,7 +209,50 @@ data class DspRackState(
      * When false, the engine stays in bit-exact bypass without float promotion.
      */
     val isAnyStageActive: Boolean
-        get() = !isMasterBypassed && peqEnabled && peqBands.any { it.isEnabled && abs(it.gainDb) >= 0.01f }
+        get() = !isMasterBypassed && (
+            (peqEnabled && peqBands.any { it.isEnabled && abs(it.gainDb) >= 0.01f }) ||
+                (replayGainEnabled && abs(replayGainPreampDb) >= 0.01f) ||
+                (dcPhaseEnabled && dcPhasePreset != DcPhaseType.OFF) ||
+                vinylEnabled || tubeEnabled || tapeEnabled || r2rEnabled || crossfeedEnabled ||
+                (virtualBassEnabled && virtualBassAmount > 0.001f) || iso226Enabled || limiterEnabled
+            )
+
+    /**
+     * Everything after the parametric EQ, as the engine's DspChain wants it. Convolution has no engine
+     * stage yet and is not sent. A master bypass sends all-off, which the engine passes bit-exact.
+     */
+    fun toEngineSettings(): DspSettings {
+        if (isMasterBypassed) return DspSettings()
+        return DspSettings(
+            inputGainEnabled = replayGainEnabled,
+            inputGainDb = replayGainPreampDb.toDouble(),
+            phaseEnabled = dcPhaseEnabled && dcPhasePreset != DcPhaseType.OFF,
+            phaseAmount = when (dcPhasePreset) {
+                DcPhaseType.TYPE_A_LOW, DcPhaseType.TYPE_B_LOW -> 1
+                DcPhaseType.TYPE_A_STANDARD, DcPhaseType.TYPE_B_STANDARD -> 2
+                else -> 3
+            },
+            vinylEnabled = vinylEnabled,
+            vinylCrosstalkDb = vinylCrosstalkDb.toDouble(),
+            vinylResonanceDb = (vinylTonearmResonance * 2f).toDouble(),
+            tubeEnabled = tubeEnabled,
+            tubeType = when (tubeModel) {
+                TubeModelType.PENTODE_EL34, TubeModelType.TETRODE_KT88 -> 1
+                else -> 0
+            },
+            tubeDrive = ((tubeDrive - 0.1f) / 4.9f).coerceIn(0f, 1f).toDouble(),
+            tapeEnabled = tapeEnabled,
+            tapeDrive = ((tapeSaturation - 0.1f) / 2.9f).coerceIn(0f, 1f).toDouble(),
+            r2rEnabled = r2rEnabled,
+            r2rMismatchPercent = (r2rMismatchSigma * 100f).coerceIn(0f, 0.5f).toDouble(),
+            crossfeedEnabled = crossfeedEnabled,
+            subBassEnabled = virtualBassEnabled,
+            subBassAmount = (virtualBassAmount / 2f).coerceIn(0f, 1f).toDouble(),
+            loudnessEnabled = iso226Enabled,
+            loudnessLevelOffsetDb = volumeAttenuationDb.coerceIn(-60f, 0f).toDouble(),
+            limiterEnabled = limiterEnabled,
+        )
+    }
 
     /**
      * Computes the aggregated magnitude curve in dB for all 10 bands at evalFreqHz

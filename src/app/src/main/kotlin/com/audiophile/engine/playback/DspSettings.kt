@@ -25,11 +25,12 @@ data class DspSettings(
     val subBassAmount: Double = 0.5,
     val loudnessEnabled: Boolean = false,
     val loudnessReferencePhon: Double = 80.0,
+    val loudnessLevelOffsetDb: Double = 0.0,   // volume below the reference level, <= 0
     val limiterEnabled: Boolean = false,
     val limiterCeilingDb: Double = -0.3,
     val outputGainDb: Double = 0.0,
 ) {
-    /** Field order shared with nativeSetDsp in PlaybackEngineJni.cpp (24 slots, the last is reserved). */
+    /** Field order shared with nativeSetDsp in PlaybackEngineJni.cpp (24 slots). */
     fun toArray(): DoubleArray = doubleArrayOf(
         b(inputGainEnabled), inputGainDb,
         b(phaseEnabled), phaseAmount.toDouble(),
@@ -41,7 +42,7 @@ data class DspSettings(
         b(subBassEnabled), subBassAmount,
         b(loudnessEnabled), loudnessReferencePhon,
         b(limiterEnabled), limiterCeilingDb,
-        outputGainDb, 0.0,
+        outputGainDb, loudnessLevelOffsetDb,
     )
 
     private fun b(v: Boolean) = if (v) 1.0 else 0.0

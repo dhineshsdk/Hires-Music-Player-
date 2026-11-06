@@ -104,6 +104,7 @@ Java_com_audiophile_engine_playback_NativeAudioEngine_nativeSetDsp(JNIEnv* env, 
     s.loudnessEnabled = v[18] != 0.0;  s.loudnessReferencePhon = v[19];
     s.limiterEnabled = v[20] != 0.0;   s.limiterCeilingDb = v[21];
     s.outputGainDb = v[22];
+    s.loudnessLevelOffsetDb = v[23];
     FromHandle(handle)->SetDsp(s);
 }
 

@@ -60,6 +60,7 @@ struct DspSettings {
     // Stage 6.
     bool loudnessEnabled{false};
     double loudnessReferencePhon{80.0}; // level at which the music is judged flat, 40..90
+    double loudnessLevelOffsetDb{0.0};  // volume setting below the reference level (<= 0), added to the gain offsets
 
     // Stage 7.
     bool limiterEnabled{false};
@@ -390,7 +391,8 @@ private:
         // Stage 6.
         if (ready && s.loudnessEnabled) {
             const double ref = std::clamp(s.loudnessReferencePhon, 40.0, 90.0);
-            const double listen = std::clamp(ref + s.inputGainDb * (s.inputGainEnabled ? 1.0 : 0.0) + s.outputGainDb,
+            const double listen = std::clamp(ref + std::min(0.0, s.loudnessLevelOffsetDb) +
+                                                 s.inputGainDb * (s.inputGainEnabled ? 1.0 : 0.0) + s.outputGainDb,
                                              20.0, ref);
             if (ref - listen >= 0.05) FitLoudness(p, ref, listen);
         }
