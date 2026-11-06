@@ -1,4 +1,7 @@
 #include "PlaybackEngine.hpp"
+#if defined(__linux__)
+#include "LinuxUsbfsIo.hpp"
+#endif
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -11,6 +14,7 @@
 #include "../decoders/FlacDecoder.hpp"
 #include "../decoders/ReadAheadSource.hpp"
 #include "../decoders/WavDecoder.hpp"
+#include "ExynosThreadGovernor.hpp"
 #include "Log.hpp"
 #include "PcmConvert.hpp"
 #include "PcmEncoding.hpp"
@@ -282,9 +286,17 @@ uint64_t TrackSource::PositionFrames() const noexcept {
 // ---------------------------------------------------------------------------
 
 PlaybackEngine::PlaybackEngine(std::unique_ptr<AudioOutput> output)
-    : output_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    : outputA_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    output_ = outputA_.get();
+#if defined(__linux__)
+    usbFactory_ = [](int fd, int iface) -> std::unique_ptr<AudioOutput> {
+        return std::make_unique<UsbExclusiveOutput>(std::make_unique<Drivers::LinuxUsbfsIo>(fd), iface,
+                                                    ExynosThreadGovernor::CLUSTER_1_USB_PUMP);
+    };
+#endif
     merger_.snapshot.receipt.hash_algorithm = HRC_HASH_FNV1A64_CANONICAL;
     merger_.snapshot.receipt.first_mismatch_frame = -1;
+    PublishDspStages();
 }
 
 #if HIRES_HAVE_MEDIACODEC
@@ -399,8 +411,11 @@ hrc_result PlaybackEngine::Open(std::unique_ptr<TrackSource> source) {
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
         eq_.SetSampleRate(current_->format.sampleRate);
+        dsp_.SetSampleRate(current_->format.sampleRate);
+        PublishDspStages();
     }
     eq_.RequestReset();
+    dsp_.RequestReset();
     rtUnderruns_ = 0;  // the callback is not running
     {
         std::lock_guard<std::mutex> lock(streamMutex_);
@@ -498,6 +513,7 @@ hrc_result PlaybackEngine::SeekToFrame(uint64_t frame) {
     const uint64_t landed = current_->PositionFrames();
     PublishPlayingInfo(*current_);
     eq_.RequestReset();
+    dsp_.RequestReset();
     {
         std::lock_guard<std::mutex> lock(streamMutex_);
         ResetRingLocked(current_->format, landed);
@@ -537,8 +553,11 @@ hrc_result PlaybackEngine::Close() {
 }
 
 hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
-    if (config.kind == HRC_OUTPUT_B) return HRC_E_NOT_BUILT;  // the usbfs driver is Phase 5
-    if (config.kind != HRC_OUTPUT_A) return HRC_E_INVALID_ARG;
+    if (config.kind != HRC_OUTPUT_A && config.kind != HRC_OUTPUT_B) return HRC_E_INVALID_ARG;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (config.usb_fd < 0) return HRC_E_INVALID_ARG;
+        if (!usbFactory_) return HRC_E_NOT_BUILT;
+    }
     if (config.sample_rate != 0) return HRC_E_UNSUPPORTED;    // needs the engine resampler (libsoxr), not built
     switch (config.format) {
         case HRC_SAMPLE_UNKNOWN: case HRC_SAMPLE_S16: case HRC_SAMPLE_S24:
@@ -548,19 +567,52 @@ hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
     std::lock_guard<std::mutex> lock(streamMutex_);
     const bool bitPerfect = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
     if (outputOpen_ && config.kind == outKind_ && config.format == outFormatConfig_ &&
-        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_) {
+        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_ &&
+        (config.kind != HRC_OUTPUT_B || (config.usb_fd == usbFd_ && config.usb_interface == usbInterface_))) {
         return HRC_OK;  // nothing changes, so keep the stream (no click on a repeated call)
+    }
+    // Move to the output the user chose. The old one is closed first so only one ever holds the DAC.
+    const bool wasOpen = outputOpen_;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
+        outputB_ = usbFactory_(config.usb_fd, config.usb_interface);
+        if (!outputB_) return HRC_E_OUTPUT_FAILED;
+        output_ = outputB_.get();
+        usbFd_ = config.usb_fd;
+        usbInterface_ = config.usb_interface;
+    } else if (output_ != outputA_.get()) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
     }
     outKind_ = config.kind;
     outFormatConfig_ = config.format;
     outRateConfig_ = config.sample_rate;
     followsSource_.store(config.format == HRC_SAMPLE_UNKNOWN && config.sample_rate == 0, std::memory_order_release);
     bitPerfect_ = bitPerfect;
-    if (!outputOpen_ || ringFormat_.sampleRate <= 0) return HRC_OK;
+    if (!wasOpen || ringFormat_.sampleRate <= 0) return HRC_OK;
     // Reopen now. The ring keeps its source-format frames; only the final conversion changes.
-    if (!OpenOutputLocked()) return HRC_E_OUTPUT_FAILED;
-    if (GetState() == State::Playing && !output_->Start()) return HRC_E_OUTPUT_FAILED;
+    if (!OpenOutputLocked() || (GetState() == State::Playing && !output_->Start())) {
+        if (outKind_ == HRC_OUTPUT_B) FallBackToOutputALocked();   // never leave the user with no sound path
+        return HRC_E_OUTPUT_FAILED;
+    }
     return HRC_OK;
+}
+
+void PlaybackEngine::SetUsbOutputFactory(UsbOutputFactory factory) {
+    std::lock_guard<std::mutex> lock(streamMutex_);
+    usbFactory_ = std::move(factory);
+}
+
+// Output B could not open or died: go back to Output A so playback can continue. streamMutex_ held.
+void PlaybackEngine::FallBackToOutputALocked() {
+    if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+    output_ = outputA_.get();
+    outputB_.reset();
+    outKind_ = HRC_OUTPUT_A;
+    if (ringFormat_.sampleRate > 0 && OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 
 void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
@@ -583,6 +635,31 @@ void PlaybackEngine::SetEq(const DSP::ParametricEq::Band* bands, int count, doub
     const bool active = eq_.IsActive();
     peqFlags_.store(HRC_STAGE_BUILT | (enabled ? HRC_STAGE_ENABLED : 0u) | (active ? 0u : HRC_STAGE_BYPASSED),
                     std::memory_order_release);
+}
+
+void PlaybackEngine::SetDsp(const DSP::DspSettings& settings) {
+    std::lock_guard<std::mutex> lock(sourceMutex_);  // chain control state is shared with a decoder-side reopen
+    dsp_.Configure(settings);
+    PublishDspStages();
+}
+
+// Caller holds sourceMutex_. Copies the chain's control-side view into atomics for the telemetry reader.
+void PlaybackEngine::PublishDspStages() noexcept {
+    for (int i = 0; i < HRC_STAGE_COUNT; ++i) {
+        if (i == HRC_STAGE_PEQ || i == HRC_STAGE_CONVOLUTION || i == HRC_STAGE_OUTPUT) continue;
+        const auto info = dsp_.Info(i);
+        stageFlags_[i].store((info.built ? HRC_STAGE_BUILT : 0u) | (info.enabled ? HRC_STAGE_ENABLED : 0u) |
+                                 (info.bypassed ? HRC_STAGE_BYPASSED : 0u),
+                             std::memory_order_release);
+        stageLatency_[i].store(info.latencyFrames, std::memory_order_release);
+        if (i == HRC_STAGE_NONLINEAR) nonlinearOversample_.store(info.oversample, std::memory_order_release);
+    }
+    // Stage 7 is the output stage: limiter and gain; conversion/dither follow it when anything is active.
+    const auto out = dsp_.Info(7);
+    stageFlags_[HRC_STAGE_OUTPUT].store(HRC_STAGE_BUILT | (out.enabled ? HRC_STAGE_ENABLED : 0u) |
+                                            (out.bypassed ? HRC_STAGE_BYPASSED : 0u),
+                                        std::memory_order_release);
+    dspActive_.store(dsp_.IsActive(), std::memory_order_release);
 }
 
 PlaybackEngine::State PlaybackEngine::GetState() const noexcept {
@@ -613,7 +690,12 @@ void PlaybackEngine::OnOutputLost() noexcept {
     output_->Close();
     outputOpen_ = false;
     if (GetState() == State::Idle || ringFormat_.sampleRate <= 0) return;
-    // Reopen on whatever device is now current.
+    // Reopen on whatever device is now current. A lost USB DAC means going back to Output A.
+    if (outKind_ == HRC_OUTPUT_B) {
+        if (OpenOutputLocked() && playWhenReady_.load() && output_->Start()) return;
+        FallBackToOutputALocked();
+        return;
+    }
     if (OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 
@@ -1194,8 +1276,11 @@ bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
         std::lock_guard<std::mutex> sourceLock(sourceMutex_);
         current_ = std::move(next);
         eq_.SetSampleRate(current_->format.sampleRate);
+        dsp_.SetSampleRate(current_->format.sampleRate);
+        PublishDspStages();
     }
     eq_.RequestReset();
+    dsp_.RequestReset();
     PublishPlayingInfo(*current_);
     ResetRingLocked(current_->format, 0);
     // A bit-perfect mixer is set for one rate and format. After a reopen the caller must set it
@@ -1292,7 +1377,8 @@ void PlaybackEngine::Render(void* out, int32_t numFrames, int64_t outputXruns) n
 // Converts up to `frames` frames from the ring into `out`; returns how many the ring had.
 size_t PlaybackEngine::RenderSegment(uint8_t* out, size_t frames) noexcept {
     if (ringFrameBytes_ == 0) return 0;
-    const bool dsp = (peqFlags_.load(std::memory_order_acquire) & HRC_STAGE_BYPASSED) == 0;
+    const bool dsp = (peqFlags_.load(std::memory_order_acquire) & HRC_STAGE_BYPASSED) == 0 ||
+                     dspActive_.load(std::memory_order_acquire);
     const size_t outFrameBytes = SampleBytes(outFormat_) * static_cast<size_t>(outChannels_);
     const size_t maxChunk = std::min(kScratchFrames, byteScratch_.size() / ringFrameBytes_);
     size_t done = 0;
@@ -1305,7 +1391,10 @@ size_t PlaybackEngine::RenderSegment(uint8_t* out, size_t frames) noexcept {
         if (dsp) {
             // A DSP stage is on: promote to float, process, convert once at the end.
             ToStereoFloat(byteScratch_.data(), ringFormat_.format, ringFormat_.channels, floatScratch_.data(), chunk);
+            dsp_.ProcessPre(floatScratch_.data(), chunk);
             eq_.Process(floatScratch_.data(), chunk);
+            dsp_.ProcessPost(floatScratch_.data(), chunk);
+            if (outFormat_ == HRC_SAMPLE_S16 || outFormat_ == HRC_SAMPLE_S24) Dither(floatScratch_.data(), chunk);
             ConvertFrames(reinterpret_cast<const uint8_t*>(floatScratch_.data()), HRC_SAMPLE_F32, kOutputChannels,
                           dst, outFormat_, outChannels_, chunk);
         } else {
@@ -1316,6 +1405,21 @@ size_t PlaybackEngine::RenderSegment(uint8_t* out, size_t frames) noexcept {
         done += chunk;
     }
     return done;
+}
+
+// The samples were changed by DSP and are about to be rounded to an integer format: add +-1 LSB TPDF
+// noise first so the rounding error is not correlated with the music.
+void PlaybackEngine::Dither(float* stereo, size_t frames) noexcept {
+    const double lsb = outFormat_ == HRC_SAMPLE_S16 ? 1.0 / 32768.0 : 1.0 / 8388608.0;
+    auto uniform = [this]() noexcept {   // xorshift64*, in (-0.5, 0.5)
+        ditherState_ ^= ditherState_ >> 12;
+        ditherState_ ^= ditherState_ << 25;
+        ditherState_ ^= ditherState_ >> 27;
+        return static_cast<double>((ditherState_ * 0x2545F4914F6CDD1Dull) >> 11) / 9007199254740992.0 - 0.5;
+    };
+    for (size_t i = 0; i < frames * kOutputChannels; ++i) {
+        stereo[i] = static_cast<float>(static_cast<double>(stereo[i]) + (uniform() + uniform()) * lsb);
+    }
 }
 
 void PlaybackEngine::HashOutput(const uint8_t* data, size_t frames) noexcept {
@@ -1504,11 +1608,18 @@ void PlaybackEngine::FillStatic(hrc_telemetry& t) noexcept {
     if (v[kOpen]) t.has |= HRC_TELEMETRY_HAS_OUTPUT;
     else t.has &= ~HRC_TELEMETRY_HAS_OUTPUT;
 
-    // Stages: only the parametric EQ and the output conversion exist so far.
+    // Stages: everything but convolution is built; flags are published by SetEq / SetDsp.
     for (uint32_t i = 0; i < HRC_STAGE_COUNT; ++i) {
         t.stages[i] = hrc_stage_telemetry{0, 0, 1, 0};
     }
     t.stages[HRC_STAGE_PEQ].flags = peqFlags_.load(std::memory_order_acquire);
+    for (uint32_t i : {HRC_STAGE_REPLAYGAIN, HRC_STAGE_LINEAR_STYLE, HRC_STAGE_NONLINEAR, HRC_STAGE_SPATIAL,
+                       HRC_STAGE_LOUDNESS, HRC_STAGE_OUTPUT}) {
+        t.stages[i].flags = stageFlags_[i].load(std::memory_order_acquire);
+        t.stages[i].latency_frames = stageLatency_[i].load(std::memory_order_acquire);
+    }
+    t.stages[HRC_STAGE_NONLINEAR].oversample_factor = nonlinearOversample_.load(std::memory_order_acquire);
+    if (dsp_.TakeClipped()) t.stages[HRC_STAGE_OUTPUT].flags |= HRC_STAGE_CLIPPED;
     t.has |= HRC_TELEMETRY_HAS_STAGES;
 
     t.counters.telemetry_dropped = rtRing_.Dropped() + outCheckRing_.Dropped() + decoderRing_.Dropped();

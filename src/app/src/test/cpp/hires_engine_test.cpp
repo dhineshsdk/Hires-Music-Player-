@@ -15,6 +15,7 @@
 #include <vector>
 #include "HiresCoreInternal.hpp"
 #include "PlaybackEngine.hpp"
+#include "fake_usb_dac.hpp"
 #include "hires_core.h"
 
 using Audiophile::Core::ManualOutput;
@@ -347,6 +348,154 @@ void TestDspChangesReceipt() {
     Check(mismatchEvent, "RECEIPT_MISMATCH event");
 }
 
+void TestDspChainStages() {
+    using Audiophile::Core::PlaybackEngine;
+    using Audiophile::Core::TrackSource;
+    auto run = [](bool chainOn, hrc_telemetry& t) {
+        auto output = std::make_unique<ManualOutput>();
+        ManualOutput* out = output.get();
+        PlaybackEngine engine(std::move(output));
+        const Wav a = MakeWav(44100, 2, 16, 40000, 8);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&a.file, &releases}, 9, err);
+        Check(err == HRC_OK && engine.Open(std::move(track)) == HRC_OK, "open (C++)");
+        Audiophile::DSP::DspSettings s;
+        s.tubeEnabled = chainOn;
+        s.crossfeedEnabled = chainOn;
+        s.limiterEnabled = chainOn;
+        s.outputGainDb = chainOn ? -3.0 : 0.0;
+        engine.SetDsp(s);
+        Sleep(50);
+        engine.Play();
+        uint8_t buf[512 * 2 * 8];
+        for (int i = 0; i < 200 && engine.GetState() != PlaybackEngine::State::Ended; ++i) out->Pull(buf, 512);
+        t = hrc_telemetry{};
+        t.struct_size = sizeof(t);
+        engine.ReadTelemetry(t);
+    };
+    hrc_telemetry on{}, off{};
+    run(true, on);
+    Check(on.stages[HRC_STAGE_NONLINEAR].oversample_factor == 8, "44.1 kHz nonlinear block runs 8x");
+    Check(on.stages[HRC_STAGE_NONLINEAR].latency_frames > 0, "oversampler reports its latency");
+    Check(!(on.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED) && !(on.stages[HRC_STAGE_SPATIAL].flags & HRC_STAGE_BYPASSED) &&
+              !(on.stages[HRC_STAGE_OUTPUT].flags & HRC_STAGE_BYPASSED),
+          "tube, crossfeed and output stage report active");
+    Check(on.stages[HRC_STAGE_LINEAR_STYLE].flags & HRC_STAGE_BYPASSED, "untouched stages stay bypassed");
+    Check(on.receipt.first_mismatch_frame >= 0 && on.receipt.grade == HRC_GRADE_BEST_EFFORT, "DSP chain breaks the receipt");
+    run(false, off);
+    Check(off.stages[HRC_STAGE_NONLINEAR].oversample_factor == 1 && (off.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED),
+          "block skipped with all nonlinear stages off");
+    Check(off.receipt.first_mismatch_frame == -1 && off.receipt.frames_compared > 0, "all stages off: bit-exact, receipt matches");
+}
+
+// Output B end to end: the engine plays through the usbfs output into a simulated DAC; the DAC receives the
+// file's own samples, the receipt is VERIFIED, and leaving Output B hands the DAC back.
+void TestOutputB() {
+    using Audiophile::Core::PlaybackEngine;
+    using Audiophile::Core::TrackSource;
+    using Audiophile::Test::FakeDacConfig;
+    using Audiophile::Test::FakeUsbDac;
+    FakeDacConfig dc;
+    dc.rate = 44100;
+    dc.realtime = true;
+    dc.deviceRatePpm = 150.0;
+    auto make = [&](ManualOutput*& a, FakeUsbDac*& dac, std::unique_ptr<PlaybackEngine>& engine) {
+        auto output = std::make_unique<ManualOutput>();
+        a = output.get();
+        engine = std::make_unique<PlaybackEngine>(std::move(output));
+        engine->SetUsbOutputFactory([&dac, dc](int fd, int iface) -> std::unique_ptr<Audiophile::Core::AudioOutput> {
+            Check(fd == 7 && iface == -1, "factory gets the descriptor and interface");
+            auto d = std::make_unique<FakeUsbDac>(dc);
+            dac = d.get();
+            return std::make_unique<Audiophile::Core::UsbExclusiveOutput>(std::move(d), iface, 0);
+        });
+    };
+    hrc_output_config b{};
+    b.struct_size = sizeof(b);
+    b.kind = HRC_OUTPUT_B;
+    b.usb_fd = 7;
+    b.usb_interface = -1;
+    {
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        Check(engine->SetOutput(b) == HRC_OK, "select Output B before any track");
+        const Wav w = MakeWav(44100, 2, 16, 44100, 21);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 21, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open on Output B");
+        Check(dac != nullptr && dac->ActiveAlt() == 1 && dac->CurrentRate() == 44100, "16-bit alternate at 44.1 kHz selected");
+        Sleep(50);
+        engine->Play();
+        for (int i = 0; i < 400 && engine->GetState() != PlaybackEngine::State::Ended; ++i) Sleep(10);
+        Sleep(150);   // let the pump drain the last packets
+        const auto got = dac->Captured();
+        const auto at = std::search(got.begin(), got.end(), w.pcm.begin(), w.pcm.end());
+        Check(at != got.end(), "the DAC received the file's samples byte for byte");
+        bool silence = true;
+        for (auto it = got.begin(); it != at; ++it) silence &= *it == 0;
+        Check(silence, "only silence before the track");
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_B && t.output.backend == HRC_BACKEND_USB_EXCLUSIVE, "telemetry: Output B on usbfs");
+        Check(t.receipt.first_mismatch_frame == -1 && t.receipt.frames_compared == 44100 && t.receipt.grade == HRC_GRADE_VERIFIED,
+              "receipt VERIFIED");
+        Check(dac->Underruns() == 0 && dac->Overruns() == 0, "no DAC FIFO underrun or overrun");
+        hrc_output_config back{};
+        back.struct_size = sizeof(back);
+        back.kind = HRC_OUTPUT_A;
+        Check(engine->SetOutput(back) == HRC_OK, "back to Output A");
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_A && a->Opens() >= 1, "Output A took over");
+    }
+    {   // The DAC is unplugged while playing: the engine falls back to Output A and keeps going.
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        Check(engine->SetOutput(b) == HRC_OK, "select Output B");
+        const Wav w = MakeWav(44100, 2, 16, 4 * 44100, 22);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 22, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open");
+        Sleep(50);
+        engine->Play();
+        Sleep(200);
+        const int opensBefore = a->Opens();
+        dac->Unplug();
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        for (int i = 0; i < 300; ++i) {
+            engine->ReadTelemetry(t);
+            if (t.output.kind == HRC_OUTPUT_A && a->Opens() > opensBefore) break;
+            Sleep(10);
+        }
+        Check(t.output.kind == HRC_OUTPUT_A && a->Opens() > opensBefore, "unplugging the DAC falls back to Output A");
+        Check(a->Running(), "and playback continues there");
+    }
+    {   // A DAC that refuses the stream: selecting it reports failure and leaves Output A working.
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        const Wav w = MakeWav(22050, 2, 16, 20000, 23);   // 22.05 kHz: the DAC does not offer it
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 23, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open on Output A");
+        Check(engine->SetOutput(b) == HRC_E_OUTPUT_FAILED, "Output B refuses an unsupported rate");
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_A, "still on Output A");
+    }
+}
+
 void TestErrorsAndOwnership() {
     ManualOutput* out = nullptr;
     hrc_engine* e = NewEngine(out);
@@ -364,7 +513,8 @@ void TestErrorsAndOwnership() {
     hrc_output_config c{};
     c.struct_size = sizeof(c);
     c.kind = HRC_OUTPUT_B;
-    Check(hrc_set_output(e, &c) == HRC_E_NOT_BUILT, "Output B is not built");
+    c.usb_fd = -1;
+    Check(hrc_set_output(e, &c) == HRC_E_INVALID_ARG, "Output B needs a USB file descriptor");
     c.kind = HRC_OUTPUT_A;
     c.sample_rate = 48000;
     Check(hrc_set_output(e, &c) == HRC_E_UNSUPPORTED, "a forced rate needs the resampler, not built");
@@ -815,6 +965,8 @@ int main(int argc, char** argv) {
     TestReopenAtFormatChange();
     TestSeekAndFixedFormatStop();
     TestDspChangesReceipt();
+    TestDspChainStages();
+    TestOutputB();
     TestErrorsAndOwnership();
     TestLegacySharedFollowsSource();
     TestFadeCurves();

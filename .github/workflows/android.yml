@@ -50,6 +50,10 @@ jobs:
           ./null_test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-unused-private-field -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_suite_test.cpp -o dsp_suite_test
           ./dsp_suite_test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/dsp dsp_chain_test.cpp -o dsp_chain_test
+          ./dsp_chain_test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread -fsanitize=address,undefined -I../../main/cpp/core -I../../main/cpp/drivers -I. usb_driver_test.cpp ../../main/cpp/drivers/UsbIsoPump.cpp ../../main/cpp/core/UsbExclusiveOutput.cpp ../../main/cpp/core/ExynosThreadGovernor.cpp -o usb_driver_test
+          ./usb_driver_test
           # Lossy-file gapless trimming and exact seeks, then the engine end to end (gapless, pre-decode,
           # crossfade) under ASan+UBSan and TSan.
           bash run_wp1_host_tests.sh

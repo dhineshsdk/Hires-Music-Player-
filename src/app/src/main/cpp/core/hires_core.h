@@ -239,7 +239,8 @@ HRC_EXPORT hrc_result hrc_close(hrc_engine* engine);
 /* Which output path the user selected. */
 typedef int32_t hrc_output_kind;
 #define HRC_OUTPUT_A  0  /* AAudio through Android; bit-perfect mixer on Android 14+ (default) */
-#define HRC_OUTPUT_B  1  /* our exclusive usbfs UAC driver (Phase 5: returns HRC_E_NOT_BUILT) */
+#define HRC_OUTPUT_B  1  /* our exclusive usbfs UAC driver; needs usb_fd. If it cannot open (or the DAC is unplugged) the
+                       engine falls back to Output A and says so in telemetry */
 
 /* The backend that actually carries audio. */
 typedef int32_t hrc_output_backend;

@@ -38,6 +38,8 @@ add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
     core/PlaybackEngine.cpp
     core/OboeOutput.cpp
+    core/UsbExclusiveOutput.cpp
+    drivers/UsbIsoPump.cpp
     core/HiresCore.cpp
     core/hires_core_abi.c
     decoders/WavDecoder.cpp

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <span>
@@ -81,6 +82,12 @@ struct AudioStreamingEndpointConfiguration {
     uint8_t clock_source_id{0};
     bool is_asynchronous{false};
     bool is_implicit_feedback{false};
+    // Added for Output B:
+    bool is_input{false};               // the data endpoint is IN (a microphone stream), not playback
+    uint8_t control_interface{0};       // the AudioControl interface (UAC2 clock requests go there)
+    uint8_t sample_rate_count{0};       // UAC1: the rates the format descriptor lists (or 2 for a range)
+    bool sample_rates_continuous{false};
+    std::array<uint32_t, 16> sample_rates{};
 };
 
 class AudioDescriptorParser {
@@ -93,6 +100,7 @@ public:
         std::optional<AudioStreamingEndpointConfiguration> active_stream_profile;
         uint8_t current_protocol = 0;
         uint8_t active_clock_source_id = 0;
+        uint8_t control_interface = 0;
 
         while (cursor + sizeof(UsbDescriptorHeader) <= raw_config.size()) {
             auto header = reinterpret_cast<const UsbDescriptorHeader*>(&raw_config[cursor]);
@@ -107,6 +115,7 @@ public:
                         current_interface = *reinterpret_cast<const UsbInterfaceDescriptor*>(descriptor_bytes.data());
                         if (current_interface->bInterfaceClass == 0x01) {
                             current_protocol = current_interface->bInterfaceProtocol;
+                            if (current_interface->bInterfaceSubClass == 0x01) control_interface = current_interface->bInterfaceNumber;
                             if (current_interface->bInterfaceSubClass == 0x02) {
                                 if (active_stream_profile.has_value()) {
                                     active_streams.push_back(*active_stream_profile);
@@ -117,6 +126,7 @@ public:
                                     .protocol_version = current_protocol,
                                     .clock_source_id = active_clock_source_id
                                 };
+                                active_stream_profile->control_interface = control_interface;
                             }
                         }
                     }
@@ -132,12 +142,26 @@ public:
                             active_clock_source_id = clk->bClockID;
                         }
                     } else if (current_interface && current_interface->bInterfaceSubClass == 0x02) {
+                        if (subtype == 0x01 && active_stream_profile && current_protocol == 0x20 && descriptor_bytes.size() >= 11) {
+                            active_stream_profile->channels = descriptor_bytes[10];   // UAC2 AS_GENERAL bNrChannels
+                        }
                         if (subtype == 0x02 && active_stream_profile) {
                             if (current_protocol == 0x00 && descriptor_bytes.size() >= sizeof(Uac1FormatTypeIDescriptor)) {
                                 auto fmt = reinterpret_cast<const Uac1FormatTypeIDescriptor*>(descriptor_bytes.data());
                                 active_stream_profile->subslot_size = fmt->bSubframeSize;
                                 active_stream_profile->bit_resolution = fmt->bBitResolution;
                                 active_stream_profile->channels = fmt->bNrChannels;
+                                // bSamFreqType 0: a continuous range (min, max); n: n discrete 3-byte rates.
+                                const size_t listed = fmt->bSamFreqType == 0 ? 2 : fmt->bSamFreqType;
+                                active_stream_profile->sample_rates_continuous = fmt->bSamFreqType == 0;
+                                uint8_t stored = 0;
+                                for (size_t i = 0; i < listed && stored < active_stream_profile->sample_rates.size() &&
+                                                   8 + (i + 1) * 3 <= descriptor_bytes.size(); ++i) {
+                                    const uint8_t* r = descriptor_bytes.data() + 8 + i * 3;
+                                    active_stream_profile->sample_rates[stored++] =
+                                        r[0] | (static_cast<uint32_t>(r[1]) << 8) | (static_cast<uint32_t>(r[2]) << 16);
+                                }
+                                active_stream_profile->sample_rate_count = stored;
                             } else if (current_protocol == 0x20 && descriptor_bytes.size() >= sizeof(Uac2FormatTypeIDescriptor)) {
                                 auto fmt = reinterpret_cast<const Uac2FormatTypeIDescriptor*>(descriptor_bytes.data());
                                 active_stream_profile->subslot_size = fmt->bSubslotSize;
@@ -157,6 +181,7 @@ public:
                                 active_stream_profile->feedback_endpoint_address = ep->bEndpointAddress;
                             } else if (usage_type == 0x00) {
                                 active_stream_profile->data_endpoint_address = ep->bEndpointAddress;
+                                active_stream_profile->is_input = (ep->bEndpointAddress & 0x80) != 0;
                                 active_stream_profile->max_packet_size = ep->wMaxPacketSize & 0x07FF;
                                 active_stream_profile->is_asynchronous = (sync_type == 0x01);
                                 if (descriptor_bytes.size() >= sizeof(UsbAudioEndpointDescriptor) &&
