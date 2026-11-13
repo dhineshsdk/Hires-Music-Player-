@@ -47,6 +47,29 @@ fun ForensicVisualizer(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // --- 1. Header: Status & Live BT Badge ---
+        val isFeedBuilt = metrics.activeBitsMask != 0L || metrics.peakLevelDbfs.isFinite()
+
+        if (!isFeedBuilt) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0x18FFAB3D))
+                    .border(1.dp, EmberOrange.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "FORENSIC FEED NOT BUILT",
+                    color = EmberOrange,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

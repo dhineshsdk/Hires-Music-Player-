@@ -93,7 +93,8 @@ data class SignalPathState(
             dsp: DspRackState,
             outputMode: OutputMode,
             btTelemetry: BluetoothTelemetry,
-            connectedDacName: String?
+            connectedDacName: String?,
+            telemetry: HrcTelemetry? = null
         ): SignalPathState {
             val isPlayingOrLoaded = track.sampleRateHz > 0
 
@@ -473,19 +474,17 @@ data class SignalPathState(
                 )
             )
 
-            // Bit-perfect requires zero active DSP alteration and a bit-perfect hardware output route
-            val isOverallBitPerfect = !dspActive && (
-                outputMode == OutputMode.ModeB_Android14_BitPerfect ||
-                outputMode == OutputMode.ModeC_Usbfs_BitPerfect
-            )
-
             val grade = when {
                 !isPlayingOrLoaded -> ReceiptGrade.NONE
+                telemetry != null && telemetry.hasReceipt && telemetry.receipt.grade != HrcConstants.GRADE_NONE -> telemetry.receipt.receiptGrade
                 dspActive -> ReceiptGrade.BEST_EFFORT
                 outputMode == OutputMode.ModeC_Usbfs_BitPerfect -> ReceiptGrade.VERIFIED
                 outputMode == OutputMode.ModeB_Android14_BitPerfect -> ReceiptGrade.OS_CONFIRMED
                 else -> ReceiptGrade.BEST_EFFORT
             }
+
+            // Bit-perfect requires zero active DSP alteration and a bit-perfect hardware output route
+            val isOverallBitPerfect = grade.isBitExact && !dspActive
 
             return SignalPathState(
                 nodes = nodes,

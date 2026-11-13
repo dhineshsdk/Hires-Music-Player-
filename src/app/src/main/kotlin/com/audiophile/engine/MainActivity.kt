@@ -205,26 +205,25 @@ fun MainAppScaffold(
                         onOpenOutput = { selectedTab = NavigationTab.OUTPUT },
                         onOpenDapMode = { dapOpen = true },
                         onOpenFiles = onOpenFiles,
-                        modifier = Modifier.navigationBarsPadding()
+                        modifier = Modifier.navigationBarsPadding(),
+                        isDspBypassed = dspState.isMasterBypassed,
+                        onToggleDspBypass = { stateRepository.toggleDspBypass() }
                     )
                 }
                 NavigationTab.SIGNAL_PATH -> {
                     PathScreen(signalPath = signalPath, modifier = Modifier.navigationBarsPadding().padding(bottom = bottomSpace))
                 }
                 NavigationTab.DSP_RACK -> {
+                    val hrcTelemetry by stateRepository.hrcTelemetry.collectAsState()
                     DspRackScreen(
                         dspState = dspState,
                         onDspStateChange = { stateRepository.updateDspRack { _ -> it } },
                         connectedDevice = connectedDevice,
                         onSaveDevicePreset = { stateRepository.savePresetForActiveDevice() },
                         onFlashHardwareBiquads = {
-                            connectedDevice?.let { dev ->
-                                val success = stateRepository.usbBridge.flashMoondropFreeDspHardware(dspState.peqBands)
-                                if (!success) {
-                                    stateRepository.usbBridge.flashWalkPlayHardware(dspState.peqBands)
-                                }
-                            }
+                            stateRepository.flashHardwareDsp()
                         },
+                        telemetry = hrcTelemetry,
                         modifier = Modifier.navigationBarsPadding().padding(bottom = bottomSpace)
                     )
                 }
@@ -238,7 +237,8 @@ fun MainAppScaffold(
                             onOutputModeChange = { stateRepository.setOutputMode(it) },
                             transitions = transitions,
                             mixing = crossfadeMixing,
-                            onOpenTransitions = { showTransitions = true }
+                            onOpenTransitions = { showTransitions = true },
+                            onFlashHardwareDsp = { stateRepository.flashHardwareDsp() }
                         )
                         AppearanceCard(Modifier.padding(horizontal = 16.dp))
                         HardwareProfilesScreen(

@@ -12,7 +12,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -38,6 +40,11 @@ fun KnurledKnob(
     modifier: Modifier = Modifier
 ) {
     val normValue = ((value - min) / (max - min)).coerceIn(0.0f, 1.0f)
+    val currentVal by rememberUpdatedState(value)
+    val onValChange by rememberUpdatedState(onValueChange)
+    val haptic = LocalHapticFeedback.current
+    var lastHapticVal by remember { mutableStateOf(value) }
+
     // 270 degree sweep: from 135 deg (bottom left) to 405 deg (bottom right)
     val startAngle = 135.0f
     val sweepAngle = 270.0f
@@ -50,13 +57,21 @@ fun KnurledKnob(
         Box(
             modifier = Modifier
                 .size(size)
-                .pointerInput(Unit) {
+                .pointerInput(min, max) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
                         // Drag up/right increases, drag down/left decreases
                         val delta = (dragAmount.x - dragAmount.y) / 220f
-                        val newValue = (value + delta * (max - min)).coerceIn(min, max)
-                        onValueChange(newValue)
+                        val newValue = (currentVal + delta * (max - min)).coerceIn(min, max)
+
+                        // 0.0 or 10% step haptic feedback
+                        val crossedZero = (currentVal < 0f && newValue >= 0f) || (currentVal > 0f && newValue <= 0f)
+                        if (crossedZero || abs(newValue - lastHapticVal) >= (max - min) * 0.1f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticVal = newValue
+                        }
+
+                        onValChange(newValue)
                     }
                 },
             contentAlignment = Alignment.Center

@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import com.audiophile.engine.library.source.DriveByteSource
 
 /**
  * Google Drive API v3 Audio Client (Phase 2 Specification).
@@ -28,6 +29,24 @@ class GoogleDriveClient(
 
     val isConnected: Boolean
         get() = !accessToken.isNullOrBlank()
+
+    /**
+     * Creates a [DriveByteSource] for HTTP Range streaming without downloading the entire file first.
+     */
+    fun openByteSource(file: DriveFileItem): DriveByteSource {
+        return openByteSource(file.id, file.sizeBytes)
+    }
+
+    /**
+     * Creates a [DriveByteSource] by file ID and total size.
+     */
+    fun openByteSource(fileId: String, sizeBytes: Long): DriveByteSource {
+        return DriveByteSource(
+            fileId = fileId,
+            sizeBytes = sizeBytes,
+            tokens = { _ -> accessToken }
+        )
+    }
 
     data class DriveFileItem(
         val id: String,

@@ -90,18 +90,21 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
 
+    // 6b. Native Zero-Copy HRC Telemetry (512-byte ABI struct)
+    private val _hrcTelemetry = MutableStateFlow<HrcTelemetry?>(null)
+    val hrcTelemetry: StateFlow<HrcTelemetry?> = _hrcTelemetry.asStateFlow()
+
     // 7. Dynamic Roon-Style Signal Path State
-    // kotlinx combine() has typed overloads for at most five flows, so the
-    // hardware sources are paired first.
     private val outputHardware = combine(bluetoothTelemetry, connectedUsbDevice) { bt, usb -> bt to usb }
+    private val trackAndMetrics = combine(_trackMetadata, _forensicMetrics) { t, m -> t to m }
+    private val dspAndTelem = combine(_dspRackState, _hrcTelemetry) { d, telem -> d to telem }
 
     val signalPathState: StateFlow<SignalPathState> = combine(
-        _trackMetadata,
-        _forensicMetrics,
-        _dspRackState,
+        trackAndMetrics,
+        dspAndTelem,
         _outputMode,
         outputHardware
-    ) { track, metrics, dsp, mode, (bt, usb) ->
+    ) { (track, metrics), (dsp, telem), mode, (bt, usb) ->
         val activeDacName = usb?.profile?.deviceName ?: PlaybackHolder.player?.route?.value?.deviceName
         SignalPathState.buildPath(
             track = track,
@@ -109,7 +112,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
             dsp = dsp,
             outputMode = mode,
             btTelemetry = bt,
-            connectedDacName = activeDacName
+            connectedDacName = activeDacName,
+            telemetry = telem
         )
     }.stateIn(scope, SharingStarted.Eagerly, SignalPathState())
 
@@ -170,7 +174,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
                 PlaybackHolder.player?.route?.let { routeFlow ->
                     scope.launch(Dispatchers.Main) {
                         routeFlow.collect { route ->
-                            _outputMode.value = if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
+                            _outputMode.value = if (route.deviceName?.contains("Output B") == true) OutputMode.ModeC_Usbfs_BitPerfect
+                                                else if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
                                                 else OutputMode.ModeA_StandardAndroid
                             refreshTrackMetadata()
                         }
@@ -182,6 +187,24 @@ class AudioEngineStateRepository private constructor(context: Context) {
                     scope.launch(Dispatchers.Main) {
                         formatFlow.collect {
                             refreshTrackMetadata()
+                        }
+                    }
+                }
+
+                // Reactively observe zero-copy telemetry from native engine (30 Hz)
+                PlaybackHolder.player?.telemetry?.let { telemetryFlow ->
+                    scope.launch(Dispatchers.Main) {
+                        telemetryFlow.collect { telem ->
+                            _hrcTelemetry.value = telem
+                            if (telem != null && telem.hasLevels) {
+                                val ch = telem.levels.channels
+                                val peak = if (ch > 0) telem.levels.peakDbfs.take(ch).maxOrNull() ?: Float.NEGATIVE_INFINITY else Float.NEGATIVE_INFINITY
+                                val rms = if (ch > 0) telem.levels.rmsDbfs.take(ch).maxOrNull() ?: Float.NEGATIVE_INFINITY else Float.NEGATIVE_INFINITY
+                                _forensicMetrics.value = _forensicMetrics.value.copy(
+                                    peakLevelDbfs = peak,
+                                    rmsLevelDbfs = rms
+                                )
+                            }
                         }
                     }
                 }
@@ -204,7 +227,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
         val meta = c.mediaMetadata
         val format = PlaybackHolder.player?.engineFormat?.value
         val route = PlaybackHolder.player?.route?.value
-        _outputMode.value = if (route?.bitPerfect == true) OutputMode.ModeB_Android14_BitPerfect
+        _outputMode.value = if (route?.deviceName?.contains("Output B") == true) OutputMode.ModeC_Usbfs_BitPerfect
+                            else if (route?.bitPerfect == true) OutputMode.ModeB_Android14_BitPerfect
                             else OutputMode.ModeA_StandardAndroid
         val uri = item.requestMetadata.mediaUri ?: item.localConfiguration?.uri
         val extension = uri?.lastPathSegment?.substringAfterLast('.', "")?.uppercase().orEmpty()
@@ -306,9 +330,51 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
 
     fun setOutputMode(mode: OutputMode) {
-        // Only the shared mixer and Android 14 bit-perfect exist so far; any non-standard mode asks for bit-perfect.
-        PlaybackHolder.player?.setBitPerfectEnabled(mode != OutputMode.ModeA_StandardAndroid)
+        when (mode) {
+            OutputMode.ModeC_Usbfs_BitPerfect -> {
+                val dev = usbBridge.connectedDevice.value
+                if (dev != null && dev.fileDescriptor >= 0) {
+                    val iface = dev.audioStreamingInterface?.id ?: -1
+                    val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface) ?: -1
+                    if (res == 0) {
+                        _outputMode.value = OutputMode.ModeC_Usbfs_BitPerfect
+                    } else {
+                        // Fall back to Android 14 Bit-Perfect (Output A)
+                        PlaybackHolder.player?.setBitPerfectEnabled(true)
+                        _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+                    }
+                } else {
+                    PlaybackHolder.player?.setBitPerfectEnabled(true)
+                    _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+                }
+            }
+            OutputMode.ModeB_Android14_BitPerfect -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(true)
+                _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+            }
+            OutputMode.ModeA_StandardAndroid -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(false)
+                _outputMode.value = OutputMode.ModeA_StandardAndroid
+            }
+            else -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(true)
+                _outputMode.value = mode
+            }
+        }
         refreshTrackMetadata()
+    }
+
+    /** Quick toggle for master DSP bypass (instant A/B test with bit-exact passthrough). */
+    fun toggleDspBypass() {
+        val current = _dspRackState.value
+        val bypassed = !current.isMasterBypassed
+        updateDspRack { it.copy(isMasterBypassed = bypassed) }
+    }
+
+    /** Flashes the active 10-band PEQ profile directly into hardware registers of connected USB DAC. */
+    fun flashHardwareDsp(): Boolean {
+        val peq = _dspRackState.value.peqBands
+        return usbBridge.flashHardwarePeq(peq)
     }
 
     /** Changes how tracks hand over; saved and applied to the engine at once. */

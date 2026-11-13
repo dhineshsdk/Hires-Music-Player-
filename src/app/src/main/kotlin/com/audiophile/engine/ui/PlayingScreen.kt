@@ -1,6 +1,8 @@
 package com.audiophile.engine.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -60,7 +62,9 @@ fun PlayingScreen(
     onOpenOutput: () -> Unit,
     onOpenDapMode: () -> Unit,
     onOpenFiles: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isDspBypassed: Boolean = false,
+    onToggleDspBypass: (() -> Unit)? = null
 ) {
     val p = palette
     val afterglow = LookState.look == AppLook.AFTERGLOW
@@ -111,11 +115,32 @@ fun PlayingScreen(
             }
 
             if (hasTrack) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     GlassChip("${track.format} ${formatRateDepth(track.sampleRateHz, track.bitDepth)}")
                     if (signalPath.isOverallBitPerfect) GlassChip("● BIT-EXACT", p.exact, p.exact.copy(alpha = 0.1f))
                     else GlassChip("● PROCESSED", p.processed)
                     GlassChip(outputShortLabel(outputMode, connectedDevice))
+
+                    // Quick A/B DSP Bypass Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (isDspBypassed) p.exact.copy(alpha = 0.12f) else p.accent.copy(alpha = 0.14f))
+                            .border(1.dp, if (isDspBypassed) p.exact else p.accent, RoundedCornerShape(999.dp))
+                            .clickable { onToggleDspBypass?.invoke() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isDspBypassed) "BYPASS" else "DSP ON",
+                            color = if (isDspBypassed) p.exact else p.accent,
+                            fontSize = 10.sp,
+                            fontFamily = JetMono,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

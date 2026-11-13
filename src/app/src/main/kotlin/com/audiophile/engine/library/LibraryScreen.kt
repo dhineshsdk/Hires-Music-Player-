@@ -18,6 +18,14 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.audiophile.engine.library.source.DriveUploader
+import com.audiophile.engine.library.source.MoveOutcome
+import com.audiophile.engine.library.source.MoveReport
+import com.audiophile.engine.library.source.SafeMoveToDrive
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
@@ -349,6 +357,10 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var activePrefetchId by remember { mutableStateOf<String?>(null) }
     var prefetchPercent by remember { mutableStateOf(0) }
+    var pendingMoveReport by remember { mutableStateOf<MoveReport?>(null) }
+    var moveContinuation by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    var isMovingFile by remember { mutableStateOf(false) }
+    var moveStatus by remember { mutableStateOf<String?>(null) }
 
     fun refreshDriveFiles() {
         if (client.accessToken.isNullOrBlank()) return
@@ -368,6 +380,47 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
         }
     }
 
+    val moveFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                isMovingFile = true
+                moveStatus = "Preparing file upload..."
+                val outcome = withContext(Dispatchers.IO) {
+                    val tempFile = File(context.cacheDir, "move_upload_${System.currentTimeMillis()}.tmp")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        tempFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    val uploader = DriveUploader({ client.accessToken })
+                    val mover = SafeMoveToDrive(uploader)
+                    val mime = context.contentResolver.getType(uri) ?: "audio/flac"
+                    val name = uri.lastPathSegment?.substringAfterLast('/') ?: "audio_track.flac"
+                    mover.move(
+                        local = tempFile,
+                        mimeType = mime,
+                        name = name,
+                        confirmDelete = { report ->
+                            val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                            pendingMoveReport = report
+                            moveContinuation = { confirmed -> deferred.complete(confirmed) }
+                            kotlinx.coroutines.runBlocking { deferred.await() }
+                        },
+                        onProgress = { sent, total ->
+                            if (total > 0) moveStatus = "Uploading ${(sent * 100 / total)}%"
+                        }
+                    )
+                }
+                isMovingFile = false
+                moveStatus = when (outcome) {
+                    is MoveOutcome.Moved -> "Successfully moved to Drive: ${outcome.remote.name}"
+                    is MoveOutcome.KeptLocal -> "Uploaded to Drive; local copy kept (${outcome.why})"
+                    is MoveOutcome.ChecksumMismatch -> "MD5 mismatch! Remote file deleted."
+                    is MoveOutcome.Failed -> "Move failed: ${outcome.reason}"
+                }
+                refreshDriveFiles()
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         val saved = prefs.getString("access_token", null)
         if (!saved.isNullOrBlank()) {
@@ -381,38 +434,11 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
         scope.launch {
             activePrefetchId = file.id
             prefetchPercent = 0
-            statusMessage = "Reading head range (0-64 KB) for ${file.name}..."
-
-            if (file.name.endsWith(".flac", ignoreCase = true) || file.mimeType.contains("flac")) {
-                client.indexFlacDriveFile(file)
-            }
 
             val destDir = File(context.cacheDir, "drive_prefetch").apply { mkdirs() }
             val safeName = file.name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
             val localDest = File(destDir, "${file.id}_$safeName")
 
-            if (!localDest.exists() || localDest.length() != file.sizeBytes) {
-                statusMessage = "Prefetching ${file.name}..."
-                val source = DriveByteSource(file.id, file.sizeBytes, { client.accessToken })
-                val res = withContext(Dispatchers.IO) {
-                    NextTrackPrefetcher.prefetch(
-                        source = source,
-                        dest = localDest,
-                        expectedMd5 = file.md5Checksum,
-                        onProgress = { done, total ->
-                            if (total > 0) prefetchPercent = ((done * 100) / total).toInt()
-                        }
-                    )
-                }
-                if (res !is NextTrackPrefetcher.Result.Done) {
-                    statusMessage = "Prefetch failed: $res"
-                    activePrefetchId = null
-                    return@launch
-                }
-            }
-
-            statusMessage = "Playing ${file.name}"
-            activePrefetchId = null
             val libraryTrack = LibraryTrack(
                 id = file.id.hashCode().toLong(),
                 uri = Uri.fromFile(localDest),
@@ -425,7 +451,41 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
                 discNumber = 1,
                 mimeType = file.mimeType
             )
-            onPlay(listOf(libraryTrack), 0)
+
+            // If already cached locally, stream immediately without waiting for prefetch
+            if (localDest.exists() && localDest.length() == file.sizeBytes) {
+                statusMessage = "Playing ${file.name}"
+                activePrefetchId = null
+                onPlay(listOf(libraryTrack), 0)
+                return@launch
+            }
+
+            // Head metadata indexing into SQLite cache (Master Plan 5.F.3)
+            if (file.name.endsWith(".flac", ignoreCase = true) || file.mimeType.contains("flac")) {
+                statusMessage = "Indexing head range for ${file.name}..."
+                client.indexFlacDriveFile(file)
+            }
+
+            statusMessage = "Streaming ${file.name} via HTTP Range..."
+            val source = client.openByteSource(file)
+            val res = withContext(Dispatchers.IO) {
+                NextTrackPrefetcher.prefetch(
+                    source = source,
+                    dest = localDest,
+                    expectedMd5 = file.md5Checksum,
+                    onProgress = { done, total ->
+                        if (total > 0) prefetchPercent = ((done * 100) / total).toInt()
+                    }
+                )
+            }
+            if (res is NextTrackPrefetcher.Result.Done) {
+                statusMessage = "Playing ${file.name}"
+                activePrefetchId = null
+                onPlay(listOf(libraryTrack), 0)
+            } else {
+                statusMessage = "Streaming error: $res"
+                activePrefetchId = null
+            }
         }
     }
 
@@ -529,6 +589,30 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
                     }
                 }
 
+                // SafeMoveToDrive Action: Upload local track and delete after MD5 verification (Master Plan 5.F.5)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DarkSurfaceElevated)
+                        .clickable { moveFilePicker.launch("audio/*") }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Rounded.Cloud, contentDescription = null, tint = p.accent, modifier = Modifier.size(16.dp))
+                    Text(
+                        if (isMovingFile) "Uploading to Google Drive..." else "Move Local Track to Drive (with MD5 check)",
+                        color = p.ink,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (moveStatus != null) {
+                    Text(moveStatus.orEmpty(), color = p.ink2, fontSize = 11.sp, fontFamily = JetMono)
+                }
+
                 if (statusMessage != null || isLoading) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -547,6 +631,49 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
                 }
             }
 
+            // User confirmation dialog before deleting local file (Rule 5.F.5)
+            if (pendingMoveReport != null) {
+                val report = pendingMoveReport!!
+                AlertDialog(
+                    onDismissRequest = {
+                        moveContinuation?.invoke(false)
+                        pendingMoveReport = null
+                        moveContinuation = null
+                    },
+                    title = { Text("Move to Google Drive", color = p.ink, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Upload verified: MD5 checksum matches Google Drive exactly.\nDelete local copy?",
+                                color = p.ink2,
+                                fontSize = 13.sp
+                            )
+                            Text("File: ${report.localFile.name}", color = p.ink, fontSize = 12.sp, fontFamily = JetMono)
+                            Text("MD5: ${report.md5}", color = p.exact, fontSize = 11.sp, fontFamily = JetMono)
+                            Text("Remote ID: ${report.remote.id}", color = p.ink3, fontSize = 10.sp, fontFamily = JetMono)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            moveContinuation?.invoke(true)
+                            pendingMoveReport = null
+                            moveContinuation = null
+                        }) {
+                            Text("Delete Local Copy", color = EmberOrange, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            moveContinuation?.invoke(false)
+                            pendingMoveReport = null
+                            moveContinuation = null
+                        }) {
+                            Text("Keep Local Copy", color = p.ink)
+                        }
+                    }
+                )
+            }
+
             if (driveFiles.isNotEmpty()) {
                 CountLine("${driveFiles.size} cloud tracks")
                 LazyColumn(
@@ -559,7 +686,9 @@ private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
                                 .glass(RoundedCornerShape(14.dp))
+                                .clickable { playDriveFile(file) }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)

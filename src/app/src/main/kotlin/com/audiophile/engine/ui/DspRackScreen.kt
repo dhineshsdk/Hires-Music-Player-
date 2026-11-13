@@ -42,9 +42,12 @@ fun DspRackScreen(
     connectedDevice: ConnectedUsbDevice?,
     onSaveDevicePreset: () -> Unit,
     onFlashHardwareBiquads: (() -> Unit)? = null,
+    telemetry: HrcTelemetry? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val isConvolutionBuilt = telemetry?.hasStages == true &&
+        telemetry.stages.getOrNull(HrcConstants.STAGE_CONVOLUTION)?.isBuilt == true
 
     Column(
         modifier = modifier
@@ -108,7 +111,8 @@ fun DspRackScreen(
         // --- 7. Convolution FIR Engine ---
         ConvolutionRackModule(
             dspState = dspState,
-            onDspStateChange = onDspStateChange
+            onDspStateChange = onDspStateChange,
+            isBuilt = isConvolutionBuilt
         )
 
         // --- 8. ISO 226 Loudness & LR4 Virtual Sub-Bass ---
@@ -933,7 +937,8 @@ private fun SonyVinylRackModule(
 @Composable
 private fun ConvolutionRackModule(
     dspState: DspRackState,
-    onDspStateChange: (DspRackState) -> Unit
+    onDspStateChange: (DspRackState) -> Unit,
+    isBuilt: Boolean = false
 ) {
     val irProfiles = listOf(
         "None (Bypassed)",
@@ -959,29 +964,52 @@ private fun ConvolutionRackModule(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "CONVOLUTION FIR ENGINE",
+                        color = ChampagneGold,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp
+                    )
+                    if (!isBuilt) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(EmberOrange.copy(alpha = 0.15f))
+                                .border(0.5.dp, EmberOrange, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "NOT BUILT",
+                                color = EmberOrange,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 Text(
-                    text = "CONVOLUTION FIR ENGINE",
-                    color = ChampagneGold,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp
-                )
-                Text(
-                    text = "Partitioned FFT zero-latency impulse response acoustic filter",
-                    color = TextTertiary,
+                    text = if (isBuilt) "Partitioned FFT zero-latency impulse response acoustic filter"
+                           else "Planned for Phase 4 • Disabled for engine telemetry honesty",
+                    color = if (isBuilt) TextTertiary else EmberOrange.copy(alpha = 0.8f),
                     fontSize = 9.sp
                 )
             }
 
             Switch(
-                checked = dspState.convolutionEnabled && !dspState.isMasterBypassed,
-                onCheckedChange = { onDspStateChange(dspState.copy(convolutionEnabled = it)) },
+                checked = isBuilt && dspState.convolutionEnabled && !dspState.isMasterBypassed,
+                onCheckedChange = { if (isBuilt) onDspStateChange(dspState.copy(convolutionEnabled = it)) },
+                enabled = isBuilt,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = EmberOrange,
                     checkedTrackColor = EmberOrange.copy(alpha = 0.35f),
                     uncheckedThumbColor = TextTertiary,
-                    uncheckedTrackColor = DarkSurfaceElevated
+                    uncheckedTrackColor = DarkSurfaceElevated,
+                    disabledCheckedThumbColor = TextTertiary,
+                    disabledUncheckedThumbColor = TextTertiary.copy(alpha = 0.5f)
                 ),
                 modifier = Modifier.height(24.dp)
             )
@@ -998,15 +1026,18 @@ private fun ConvolutionRackModule(
             irProfiles.forEach { profile ->
                 val isSelected = dspState.impulseResponseName == profile && dspState.convolutionEnabled
                 FilterChip(
-                    selected = isSelected,
+                    selected = isSelected && isBuilt,
+                    enabled = isBuilt,
                     onClick = {
-                        val isNone = profile.startsWith("None")
-                        onDspStateChange(
-                            dspState.copy(
-                                impulseResponseName = profile,
-                                convolutionEnabled = !isNone
+                        if (isBuilt) {
+                            val isNone = profile.startsWith("None")
+                            onDspStateChange(
+                                dspState.copy(
+                                    impulseResponseName = profile,
+                                    convolutionEnabled = !isNone
+                                )
                             )
-                        )
+                        }
                     },
                     label = {
                         Text(
