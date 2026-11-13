@@ -95,13 +95,24 @@ fun SignalPathSheet(
                     }
                 }
 
-                Text(
-                    text = signalPath.activeOutputSinkName.uppercase(),
-                    color = EmberOrange,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = signalPath.activeOutputSinkName.uppercase(),
+                        color = EmberOrange,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (signalPath.receiptGrade != ReceiptGrade.NONE) {
+                        Text(
+                            text = signalPath.receiptGrade.displayName,
+                            color = if (signalPath.receiptGrade.isBitExact) MatrixGreen else EmberOrange,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
             // 24-Bit Forensic Stream Auditor & Bluetooth Telemetry
@@ -112,7 +123,7 @@ fun SignalPathSheet(
                 onToggleFakeSimulation = onToggleFakeHiRes
             )
 
-            Divider(color = Color(0x15FFFFFF), thickness = 0.5.dp)
+            HorizontalDivider(color = Color(0x15FFFFFF), thickness = 0.5.dp)
 
             // Vertical 6-Stage Timeline
             Column(
@@ -141,7 +152,7 @@ private fun SignalPathStageItem(
     var isExpanded by remember { mutableStateOf(false) }
 
     val qualityColor = when (node.qualityLevel) {
-        NodeQualityLevel.BIT_PERFECT -> RoonPurple
+        NodeQualityLevel.BIT_PERFECT -> SoftGreen
         NodeQualityLevel.STUDIO_ENHANCED -> NeonCyan
         NodeQualityLevel.CONVERTED -> AmberGlow
         NodeQualityLevel.WARNING -> CrimsonAlert

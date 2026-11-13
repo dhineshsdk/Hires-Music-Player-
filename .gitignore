@@ -49,5 +49,10 @@ local.properties
 ehthumbs.db
 Thumbs.db
 
+# Bundles & archive exports
+repo_bundle.txt
+*.zip
+ui_redesign_antigravity_brief.md
+
 # Log files
 *.log

@@ -1,8 +1,11 @@
 package com.audiophile.engine.service
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -20,10 +23,42 @@ import com.google.common.util.concurrent.ListenableFuture
 class DeterministicAudioService : MediaSessionService() {
 
     private var session: MediaSession? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updateWakeLock(isPlaying)
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val player = session?.player
+            val isPlaying = player?.isPlaying == true
+            updateWakeLock(isPlaying && playbackState == Player.STATE_READY)
+        }
+    }
+
+    private fun updateWakeLock(acquire: Boolean) {
+        val wl = wakeLock ?: return
+        if (acquire) {
+            if (!wl.isHeld) {
+                runCatching { wl.acquire(3600_000L) } // 1 hour max safety timeout
+            }
+        } else {
+            if (wl.isHeld) {
+                runCatching { wl.release() }
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DeterministicAudioService:WakeLock")?.apply {
+            setReferenceCounted(false)
+        }
+
         val player = NativeEnginePlayer(this)
+        player.addListener(playerListener)
         PlaybackHolder.player = player
         val openApp = PendingIntent.getActivity(
             this, 0,
@@ -46,7 +81,10 @@ class DeterministicAudioService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        updateWakeLock(false)
+        wakeLock = null
         session?.run {
+            player.removeListener(playerListener)
             player.release()
             release()
         }

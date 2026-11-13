@@ -15,6 +15,7 @@ import androidx.media3.session.SessionToken
 import com.audiophile.engine.bluetooth.BluetoothTelemetryManager
 import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.hardware.HardwareProfileDatabase
+import com.audiophile.engine.hardware.UsbDeviceEvent
 import com.audiophile.engine.hardware.UsbDeviceManagerBridge
 import com.audiophile.engine.hardware.UsbDeviceProfile
 import com.audiophile.engine.library.LibraryTrack
@@ -117,6 +118,23 @@ class AudioEngineStateRepository private constructor(context: Context) {
         usbBridge.start()
         bluetoothTelemetryManager.initialize()
         connectController()
+
+        scope.launch(Dispatchers.Main) {
+            usbBridge.events.collect { event ->
+                when (event) {
+                    is UsbDeviceEvent.DeviceDetached -> {
+                        _outputMode.value = OutputMode.ModeA_StandardAndroid
+                        PlaybackHolder.player?.setBitPerfectEnabled(false)
+                        refreshTrackMetadata()
+                    }
+                    is UsbDeviceEvent.DeviceAttached -> {
+                        PlaybackHolder.player?.setBitPerfectEnabled(true)
+                        refreshTrackMetadata()
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     // --- Playback (Media3 controller connected to DeterministicAudioService) ---

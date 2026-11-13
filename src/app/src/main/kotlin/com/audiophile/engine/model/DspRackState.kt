@@ -53,23 +53,23 @@ data class BiquadBand(
             }
             FilterTopology.LOW_SHELF -> {
                 val sqrtA = sqrt(A)
-                val alphaShelf = sinw0 / 2.0 * sqrt((A + 1.0 / A) * (1.0 / qFactor - 1.0) + 2.0)
-                b0 = A * ((A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alphaShelf)
+                val twoSqrtAAlpha = 2.0 * sqrtA * alpha
+                b0 = A * ((A + 1.0) - (A - 1.0) * cosw0 + twoSqrtAAlpha)
                 b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosw0)
-                b2 = A * ((A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alphaShelf)
-                a0 = (A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alphaShelf
+                b2 = A * ((A + 1.0) - (A - 1.0) * cosw0 - twoSqrtAAlpha)
+                a0 = (A + 1.0) + (A - 1.0) * cosw0 + twoSqrtAAlpha
                 a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosw0)
-                a2 = (A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alphaShelf
+                a2 = (A + 1.0) - (A - 1.0) * cosw0 - twoSqrtAAlpha
             }
             FilterTopology.HIGH_SHELF -> {
                 val sqrtA = sqrt(A)
-                val alphaShelf = sinw0 / 2.0 * sqrt((A + 1.0 / A) * (1.0 / qFactor - 1.0) + 2.0)
-                b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alphaShelf)
+                val twoSqrtAAlpha = 2.0 * sqrtA * alpha
+                b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + twoSqrtAAlpha)
                 b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0)
-                b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * sqrtA * alphaShelf)
-                a0 = (A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alphaShelf
+                b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - twoSqrtAAlpha)
+                a0 = (A + 1.0) - (A - 1.0) * cosw0 + twoSqrtAAlpha
                 a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosw0)
-                a2 = (A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alphaShelf
+                a2 = (A + 1.0) - (A - 1.0) * cosw0 - twoSqrtAAlpha
             }
             FilterTopology.LOW_PASS -> {
                 b0 = (1.0 - cosw0) / 2.0

@@ -40,9 +40,10 @@ fun VacuumTubeVisualizer(
         .width(115.dp)
         .height(170.dp)
 ) {
+    val reduceMotion = rememberReduceMotion()
     // Subtle breathing animation for the filament thermal glow
     val infiniteTransition = rememberInfiniteTransition(label = "tubeBreathing")
-    val glowPulse by infiniteTransition.animateFloat(
+    val animatedGlow by infiniteTransition.animateFloat(
         initialValue = 0.88f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
@@ -53,7 +54,7 @@ fun VacuumTubeVisualizer(
     )
 
     // Subtle magnetic hysteresis flux modulation
-    val hysteresisFlux by infiniteTransition.animateFloat(
+    val animatedFlux by infiniteTransition.animateFloat(
         initialValue = 0.92f,
         targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
@@ -62,6 +63,9 @@ fun VacuumTubeVisualizer(
         ),
         label = "hysteresisFlux"
     )
+
+    val glowPulse = if (reduceMotion) 1.0f else animatedGlow
+    val hysteresisFlux = if (reduceMotion) 1.0f else animatedFlux
 
     Column(
         modifier = modifier,

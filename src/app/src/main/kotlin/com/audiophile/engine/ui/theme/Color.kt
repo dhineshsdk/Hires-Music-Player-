@@ -17,6 +17,7 @@ val EmberOrangeGlow: Color get() = palette.accent.copy(alpha = 0.3f)
 val NeonCyan: Color get() = palette.ink2
 val ElectricBlue: Color get() = palette.ink2
 val PhosphorGreen: Color get() = palette.exact
+val SoftGreen: Color get() = palette.exact
 val ChampagneGold: Color get() = palette.ink
 val ChampagneGoldBright: Color get() = palette.ink
 val RoonPurple: Color get() = palette.ink2

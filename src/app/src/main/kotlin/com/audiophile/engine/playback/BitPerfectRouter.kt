@@ -19,7 +19,12 @@ import androidx.annotation.RequiresApi
  */
 class BitPerfectRouter(private val audioManager: AudioManager) {
 
-    data class Route(val encoding: Int, val bitPerfect: Boolean, val deviceName: String?)
+    data class Route(
+        val encoding: Int,
+        val bitPerfect: Boolean,
+        val deviceName: String?,
+        val isConfirmedBitPerfect: Boolean = false
+    )
 
     private val mediaAttributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -28,7 +33,7 @@ class BitPerfectRouter(private val audioManager: AudioManager) {
 
     private var appliedDevice: AudioDeviceInfo? = null
 
-    /** Chooses the route for a track; call before the engine starts playing it. */
+    /** Chooses the route for a track; call before the engine starts playing it or when reopened. */
     fun routeFor(sampleRateHz: Int, bitDepth: Int, enabled: Boolean): Route {
         if (!enabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             clear()
@@ -75,8 +80,14 @@ class BitPerfectRouter(private val audioManager: AudioManager) {
             return SHARED
         }
         appliedDevice = device
-        Log.i(TAG, "Bit-perfect on ${device.productName}: $sampleRateHz Hz, encoding ${chosen.format.encoding}")
-        return Route(chosen.format.encoding, true, device.productName?.toString())
+
+        // Verify with getPreferredMixerAttributes that Android confirms it
+        val preferred = audioManager.getPreferredMixerAttributes(mediaAttributes, device)
+        val confirmed = preferred != null && preferred.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
+            preferred.format.sampleRate == sampleRateHz
+
+        Log.i(TAG, "Bit-perfect on ${device.productName}: $sampleRateHz Hz, encoding ${chosen.format.encoding}, confirmed=$confirmed")
+        return Route(chosen.format.encoding, true, device.productName?.toString(), confirmed)
     }
 
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -93,7 +104,7 @@ class BitPerfectRouter(private val audioManager: AudioManager) {
          * format (16, 24 or 32-bit integer, float only for float sources), so nothing is converted
          * on our side; Android's mixer may still resample or mix.
          */
-        val SHARED = Route(AudioFormat.ENCODING_DEFAULT, false, null)
+        val SHARED = Route(AudioFormat.ENCODING_DEFAULT, false, null, false)
 
         private fun containerBits(encoding: Int): Int = when (encoding) {
             AudioFormat.ENCODING_PCM_16BIT -> 16

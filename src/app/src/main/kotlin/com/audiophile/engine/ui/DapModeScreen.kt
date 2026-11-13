@@ -442,6 +442,11 @@ private fun VuMeter(channel: String, levelDb: Float?, modifier: Modifier) {
 @Composable
 private fun LedSpectrum(modifier: Modifier) {
     val measurer = rememberTextMeasurer()
+    val labels = remember { listOf("31", "125", "500", "2k", "8k", "20k") }
+    val labelStyle = remember { TextStyle(fontFamily = PlexMono, fontSize = 9.sp, color = Color(0xFF9A9AA0)) }
+    val measuredLabels = remember(measurer, labels, labelStyle) {
+        labels.map { t -> measurer.measure(t, labelStyle) }
+    }
     Box(
         modifier
             .background(Color(0xFF0A0A0B), RoundedCornerShape(10.dp))
@@ -464,10 +469,8 @@ private fun LedSpectrum(modifier: Modifier) {
                     drawRect(if (lit) DeckAmber.copy(alpha = 0.55f) else Color(0xFF1B1B1E), Offset(x, y), Size(w, seg))
                 }
             }
-            val labels = listOf("31", "125", "500", "2k", "8k", "20k")
-            labels.forEachIndexed { i, t ->
-                val layout = measurer.measure(t, TextStyle(fontFamily = PlexMono, fontSize = 9.sp, color = Color(0xFF9A9AA0)))
-                val x = (size.width - layout.size.width) * i / (labels.size - 1)
+            measuredLabels.forEachIndexed { i, layout ->
+                val x = (size.width - layout.size.width) * i / (measuredLabels.size - 1)
                 drawText(layout, topLeft = Offset(x, size.height - layout.size.height))
             }
         }

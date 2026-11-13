@@ -69,8 +69,8 @@ class GoogleDriveClient(
                             name = f.getString("name"),
                             mimeType = f.optString("mimeType", "audio/octet-stream"),
                             sizeBytes = f.optLong("size", 0L),
-                            md5Checksum = f.optString("md5Checksum", null),
-                            modifiedTime = f.optString("modifiedTime", null)
+                            md5Checksum = if (f.has("md5Checksum")) f.getString("md5Checksum") else null,
+                            modifiedTime = if (f.has("modifiedTime")) f.getString("modifiedTime") else null
                         )
                     )
                 }

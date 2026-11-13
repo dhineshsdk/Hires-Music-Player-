@@ -36,19 +36,21 @@ object NextTrackPrefetcher {
         dest.parentFile?.mkdirs()
         val md5 = MessageDigest.getInstance("MD5")
         val buffer = ByteBuffer.allocate(chunkBytes)
+        var cancelled = false
+        var failureReason: String? = null
         try {
             part.outputStream().use { out ->
                 var done = 0L
                 while (done < total) {
                     if (cancel.get()) {
-                        part.delete()
-                        return Result.Cancelled
+                        cancelled = true
+                        break
                     }
                     buffer.clear()
                     val n = source.readAt(done, buffer)
                     if (n <= 0) {
-                        part.delete()
-                        return Result.Failed("read failed at byte $done of $total")
+                        failureReason = "read failed at byte $done of $total"
+                        break
                     }
                     out.write(buffer.array(), 0, n)
                     md5.update(buffer.array(), 0, n)
@@ -59,6 +61,14 @@ object NextTrackPrefetcher {
         } catch (e: IOException) {
             part.delete()
             return Result.Failed("write failed: ${e.message}")
+        }
+        if (cancelled) {
+            part.delete()
+            return Result.Cancelled
+        }
+        if (failureReason != null) {
+            part.delete()
+            return Result.Failed(failureReason)
         }
         if (part.length() != total) {
             part.delete()

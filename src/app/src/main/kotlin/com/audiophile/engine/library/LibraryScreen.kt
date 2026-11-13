@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -20,8 +21,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -42,11 +47,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
+import android.net.Uri
+import com.audiophile.engine.library.cache.SeekTableCache
+import com.audiophile.engine.library.drive.GoogleDriveClient
+import com.audiophile.engine.library.source.DriveByteSource
+import com.audiophile.engine.library.source.NextTrackPrefetcher
 import com.audiophile.engine.ui.components.GlassIconButton
 import com.audiophile.engine.ui.components.glass
 import com.audiophile.engine.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 private enum class LibraryView(val title: String) { ALBUMS("Albums"), SONGS("Songs"), DRIVE("Drive") }
 
@@ -141,7 +154,7 @@ fun LibraryScreen(
 
         Spacer(Modifier.height(12.dp))
         when {
-            view == LibraryView.DRIVE -> DriveNotice()
+            view == LibraryView.DRIVE -> DriveBrowser(onPlay = onPlay)
             !hasPermission -> PermissionNotice(onRequestPermission)
             tracks.isEmpty() -> Text("No music found on this phone yet.", color = p.ink2, fontSize = 14.sp)
             view == LibraryView.ALBUMS -> AlbumGrid(albums, filtered.size, onOpen = { openAlbumId = it.id })
@@ -318,20 +331,264 @@ private fun PermissionNotice(onRequestPermission: () -> Unit) {
     }
 }
 
-/** Drive browsing is not wired into this screen yet, so it says so instead of offering a dead button. */
+/**
+ * Google Drive Browser with HTTP Range streaming, head-only metadata indexing into SQLite cache,
+ * and next-track prefetching (Master Plan 5.F).
+ */
 @Composable
-private fun DriveNotice() {
+private fun DriveBrowser(onPlay: (tracks: List<LibraryTrack>, startIndex: Int) -> Unit) {
     val p = palette
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("audiophile_drive", Context.MODE_PRIVATE) }
+    var tokenInput by remember { mutableStateOf(prefs.getString("access_token", "") ?: "") }
+    val client = remember { GoogleDriveClient(context) }
+    var isConnected by remember { mutableStateOf(client.isConnected) }
+    var driveFiles by remember { mutableStateOf<List<GoogleDriveClient.DriveFileItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var activePrefetchId by remember { mutableStateOf<String?>(null) }
+    var prefetchPercent by remember { mutableStateOf(0) }
+
+    fun refreshDriveFiles() {
+        if (client.accessToken.isNullOrBlank()) return
+        scope.launch {
+            isLoading = true
+            statusMessage = "Scanning Google Drive for audio files..."
+            try {
+                val list = client.listAudioFiles()
+                driveFiles = list
+                statusMessage = if (list.isEmpty()) "No audio tracks (.flac, .wav, .dsf, .dff) found in root."
+                                else "${list.size} remote tracks indexed."
+            } catch (e: Exception) {
+                statusMessage = "Drive error: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val saved = prefs.getString("access_token", null)
+        if (!saved.isNullOrBlank()) {
+            client.accessToken = saved
+            isConnected = true
+            refreshDriveFiles()
+        }
+    }
+
+    fun playDriveFile(file: GoogleDriveClient.DriveFileItem) {
+        scope.launch {
+            activePrefetchId = file.id
+            prefetchPercent = 0
+            statusMessage = "Reading head range (0-64 KB) for ${file.name}..."
+
+            if (file.name.endsWith(".flac", ignoreCase = true) || file.mimeType.contains("flac")) {
+                client.indexFlacDriveFile(file)
+            }
+
+            val destDir = File(context.cacheDir, "drive_prefetch").apply { mkdirs() }
+            val safeName = file.name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            val localDest = File(destDir, "${file.id}_$safeName")
+
+            if (!localDest.exists() || localDest.length() != file.sizeBytes) {
+                statusMessage = "Prefetching ${file.name}..."
+                val source = DriveByteSource(file.id, file.sizeBytes, { client.accessToken })
+                val res = withContext(Dispatchers.IO) {
+                    NextTrackPrefetcher.prefetch(
+                        source = source,
+                        dest = localDest,
+                        expectedMd5 = file.md5Checksum,
+                        onProgress = { done, total ->
+                            if (total > 0) prefetchPercent = ((done * 100) / total).toInt()
+                        }
+                    )
+                }
+                if (res !is NextTrackPrefetcher.Result.Done) {
+                    statusMessage = "Prefetch failed: $res"
+                    activePrefetchId = null
+                    return@launch
+                }
+            }
+
+            statusMessage = "Playing ${file.name}"
+            activePrefetchId = null
+            val libraryTrack = LibraryTrack(
+                id = file.id.hashCode().toLong(),
+                uri = Uri.fromFile(localDest),
+                title = file.name.substringBeforeLast('.'),
+                artist = "Google Drive Cloud",
+                album = "Cloud Stream",
+                albumId = -1L,
+                durationMs = 0L,
+                trackNumber = 1,
+                discNumber = 1,
+                mimeType = file.mimeType
+            )
+            onPlay(listOf(libraryTrack), 0)
+        }
+    }
+
     Column(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Google Drive", color = p.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            "Streaming from Drive (read-only access, Range reads for seeking) is not connected to the library yet.",
-            color = p.ink2, fontSize = 13.sp
-        )
-        Text("NOT BUILT IN THE UI YET", color = p.ink3, fontFamily = JetMono, fontSize = 10.sp, letterSpacing = 1.4.sp)
+        if (!isConnected) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(20.dp))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Rounded.Cloud, contentDescription = null, tint = p.accent, modifier = Modifier.size(24.dp))
+                    Text("Google Drive Cloud Stream", color = p.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "Stream bit-perfect FLAC, DSD and WAV directly via HTTP Range requests (Rule 5.F). " +
+                    "Audio metadata and SEEKTABLE are indexed from head/tail bytes into SQLite cache without downloading full files.",
+                    color = p.ink2, fontSize = 13.sp, lineHeight = 18.sp
+                )
+                BasicTextField(
+                    value = tokenInput,
+                    onValueChange = { tokenInput = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = p.ink, fontSize = 14.sp, fontFamily = JetMono),
+                    cursorBrush = SolidColor(p.ink),
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { inner ->
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .glass(RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (tokenInput.isEmpty()) {
+                                Text("OAuth Bearer Token (drive.readonly)", color = p.ink3, fontSize = 13.sp)
+                            }
+                            inner()
+                        }
+                    }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Scope: drive.readonly (personal)", color = p.ink3, fontSize = 11.sp, fontFamily = JetMono)
+                    Text(
+                        "Connect",
+                        color = p.onAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (tokenInput.isNotBlank()) p.accent else p.accent.copy(alpha = 0.4f))
+                            .clickable(enabled = tokenInput.isNotBlank()) {
+                                val clean = tokenInput.trim()
+                                prefs.edit().putString("access_token", clean).apply()
+                                client.accessToken = clean
+                                isConnected = true
+                                refreshDriveFiles()
+                            }
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(18.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = p.exact, modifier = Modifier.size(20.dp))
+                        Column {
+                            Text("Google Drive Connected", color = p.ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("drive.readonly • HTTP Range", color = p.ink3, fontSize = 11.sp, fontFamily = JetMono)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GlassIconButton(Icons.Rounded.Refresh, "Refresh", onClick = { refreshDriveFiles() })
+                        GlassIconButton(Icons.Rounded.Close, "Disconnect", onClick = {
+                            prefs.edit().remove("access_token").apply()
+                            client.accessToken = null
+                            tokenInput = ""
+                            isConnected = false
+                            driveFiles = emptyList()
+                            statusMessage = null
+                        })
+                    }
+                }
+
+                if (statusMessage != null || isLoading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = p.accent,
+                                strokeWidth = 1.5.dp
+                            )
+                        }
+                        Text(statusMessage.orEmpty(), color = p.ink2, fontSize = 12.sp, fontFamily = JetMono)
+                    }
+                }
+            }
+
+            if (driveFiles.isNotEmpty()) {
+                CountLine("${driveFiles.size} cloud tracks")
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 90.dp)
+                ) {
+                    items(driveFiles, key = { it.id }) { file ->
+                        val isPrefetching = activePrefetchId == file.id
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .glass(RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    file.name.substringBeforeLast('.'),
+                                    color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val ext = file.name.substringAfterLast('.', "FLAC").uppercase()
+                                    Text(ext, color = p.exact, fontFamily = JetMono, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    val mb = file.sizeBytes / (1024.0 * 1024.0)
+                                    Text("${"%.1f".format(mb)} MB", color = p.ink3, fontFamily = JetMono, fontSize = 11.sp)
+                                    if (isPrefetching) {
+                                        Text("$prefetchPercent%", color = EmberOrange, fontFamily = JetMono, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            GlassIconButton(Icons.Rounded.PlayArrow, "Play", onClick = { playDriveFile(file) })
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

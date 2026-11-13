@@ -45,6 +45,20 @@ enum class NodeQualityLevel(val displayName: String) {
 }
 
 /**
+ * Verification receipt grade matching hires_core.h (C API v0.2) & docs/telemetry_schema.md:
+ * - NONE (0): Nothing compared yet (no badge)
+ * - BEST_EFFORT (1): Hashes differ (DSP active, volume, resampling) or path unconfirmed (shared mixer / BT)
+ * - OS_CONFIRMED (2): Hashes match, Output A, Android confirms bit-perfect mixer, zero underruns
+ * - VERIFIED (3): Hashes match, Output B (usbfs driver wrote exact bytes to endpoint)
+ */
+enum class ReceiptGrade(val code: Int, val displayName: String, val isBitExact: Boolean) {
+    NONE(0, "Uncompared", false),
+    BEST_EFFORT(1, "Processed (Unconfirmed Path)", false),
+    OS_CONFIRMED(2, "Bit-perfect (Android confirmed)", true),
+    VERIFIED(3, "Bit-perfect (verified)", true)
+}
+
+/**
  * Individual stage descriptor node in the pipeline
  */
 data class SignalPathNode(
@@ -63,7 +77,8 @@ data class SignalPathNode(
 data class SignalPathState(
     val nodes: List<SignalPathNode> = emptyList(),
     val isOverallBitPerfect: Boolean = false,
-    val activeOutputSinkName: String = "usbfs Asynchronous Audio Class 2.0"
+    val activeOutputSinkName: String = "usbfs Asynchronous Audio Class 2.0",
+    val receiptGrade: ReceiptGrade = ReceiptGrade.NONE
 ) {
     companion object {
         /**
@@ -98,7 +113,8 @@ data class SignalPathState(
                 return SignalPathState(
                     nodes = emptyList(),
                     isOverallBitPerfect = (outputMode == OutputMode.ModeB_Android14_BitPerfect || outputMode == OutputMode.ModeC_Usbfs_BitPerfect),
-                    activeOutputSinkName = resolvedSinkName
+                    activeOutputSinkName = resolvedSinkName,
+                    receiptGrade = ReceiptGrade.NONE
                 )
             }
 
@@ -463,10 +479,19 @@ data class SignalPathState(
                 outputMode == OutputMode.ModeC_Usbfs_BitPerfect
             )
 
+            val grade = when {
+                !isPlayingOrLoaded -> ReceiptGrade.NONE
+                dspActive -> ReceiptGrade.BEST_EFFORT
+                outputMode == OutputMode.ModeC_Usbfs_BitPerfect -> ReceiptGrade.VERIFIED
+                outputMode == OutputMode.ModeB_Android14_BitPerfect -> ReceiptGrade.OS_CONFIRMED
+                else -> ReceiptGrade.BEST_EFFORT
+            }
+
             return SignalPathState(
                 nodes = nodes,
                 isOverallBitPerfect = isOverallBitPerfect,
-                activeOutputSinkName = resolvedSinkName
+                activeOutputSinkName = resolvedSinkName,
+                receiptGrade = grade
             )
         }
     }

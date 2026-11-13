@@ -319,6 +319,22 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         return Futures.immediateVoidFuture()
     }
 
+    private fun openFd(uri: Uri): Int? = try {
+        if (uri.scheme == "file") {
+            uri.path?.let { p ->
+                android.os.ParcelFileDescriptor.open(
+                    java.io.File(p),
+                    android.os.ParcelFileDescriptor.MODE_READ_ONLY
+                )?.detachFd()
+            }
+        } else {
+            context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Cannot open $uri", e)
+        null
+    }
+
     private fun openCurrent(startPositionMs: Long): ListenableFuture<*> {
         val item = playlist.getOrNull(currentIndex) ?: return Futures.immediateVoidFuture()
         val uri = item.localConfiguration?.uri ?: return Futures.immediateVoidFuture()
@@ -327,12 +343,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         playbackState = Player.STATE_BUFFERING
         val future = com.google.common.util.concurrent.SettableFuture.create<Unit>()
         ioExecutor.execute {
-            val fd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            } catch (e: Exception) {
-                Log.e(TAG, "Cannot open $uri", e)
-                null
-            }
+            val fd = openFd(uri)
             mainHandler.post {
                 if (index != currentIndex || generation != openGeneration) {
                     // The user moved on while this file was opening.
@@ -372,12 +383,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         }
         val generation = openGeneration
         ioExecutor.execute {
-            val fd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            } catch (e: Exception) {
-                Log.w(TAG, "Cannot preload $uri", e)
-                null
-            }
+            val fd = openFd(uri)
             mainHandler.post {
                 if (fd == null) return@post
                 if (generation != openGeneration || nextIndex != currentIndex + 1) {
