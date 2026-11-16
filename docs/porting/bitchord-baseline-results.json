@@ -1,0 +1,193 @@
+{
+  "date": "2026-11-16",
+  "branch": "codex/bitchord-base",
+  "donor_files_verified": 1409,
+  "donor_source_changes": 0,
+  "apk_assemble": "passed",
+  "modules": [
+    {
+      "tests": 1259,
+      "failures": 17,
+      "errors": 0,
+      "skipped": 1,
+      "module": "app",
+      "failures_detail": [
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[es]",
+          "message": "java.lang.AssertionError: values-es/strings.xml (language es) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[fr]",
+          "message": "java.lang.AssertionError: values-fr/strings.xml (language fr) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[de]",
+          "message": "java.lang.AssertionError: values-de/strings.xml (language de) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[pl]",
+          "message": "java.lang.AssertionError: values-pl/strings.xml (language pl) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[pt]",
+          "message": "java.lang.AssertionError: values-pt/strings.xml (language pt) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[id]",
+          "message": "java.lang.AssertionError: values-id/strings.xml (language id) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[hi]",
+          "message": "java.lang.AssertionError: values-hi/strings.xml (language hi) is missing 1 keys from values/strings.xml: [automix_overview]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[ja]",
+          "message": "java.lang.AssertionError: values-ja/strings.xml (language ja) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[ru]",
+          "message": "java.lang.AssertionError: values-ru/strings.xml (language ru) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[zh-CN]",
+          "message": "java.lang.AssertionError: values-zh/strings.xml (language zh-CN) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[zh-TW]",
+          "message": "java.lang.AssertionError: values-zh-rTW/strings.xml (language zh-TW) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[he]",
+          "message": "java.lang.AssertionError: values-he/strings.xml (language he) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[it]",
+          "message": "java.lang.AssertionError: values-it/strings.xml (language it) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[tr]",
+          "message": "java.lang.AssertionError: values-tr/strings.xml (language tr) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[th]",
+          "message": "java.lang.AssertionError: values-th/strings.xml (language th) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[vi]",
+          "message": "java.lang.AssertionError: values-vi/strings.xml (language vi) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        },
+        {
+          "class": "com.music.bitchord.LocaleStringsTest",
+          "test": "strings_containsAllBaseKeys[ko]",
+          "message": "java.lang.AssertionError: values-ko/strings.xml (language ko) is missing 4 keys from values/strings.xml: [automix_overview, diwali_title, diwali_subtitle, diwali_cta]"
+        }
+      ]
+    },
+    {
+      "tests": 122,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "module": "shared-jvm",
+      "failures_detail": []
+    }
+  ],
+  "lint": {
+    "task_result": "failed",
+    "severities": {
+      "Warning": 700,
+      "Error": 269,
+      "Hint": 5
+    },
+    "issue_ids": {
+      "ApplySharedPref": 5,
+      "DefaultLocale": 2,
+      "InlinedApi": 4,
+      "LocaleFolder": 2,
+      "NewApi": 7,
+      "UnusedAttribute": 11,
+      "AppLinkWarning": 2,
+      "VectorRaster": 2,
+      "AndroidGradlePluginVersion": 1,
+      "GradleDependency": 21,
+      "UnsafeOptInUsageError": 142,
+      "ConfigurationScreenWidthHeight": 1,
+      "FlowOperatorInvokedInComposition": 1,
+      "LocalContextGetResourceValueCall": 73,
+      "LocalContextResourcesRead": 9,
+      "ModifierFactoryExtensionFunction": 1,
+      "ModifierParameter": 12,
+      "PrivateResource": 20,
+      "StateFlowValueCalledInComposition": 13,
+      "SwitchIntDef": 3,
+      "StringFormatInvalid": 1,
+      "MissingQuantity": 116,
+      "MissingTranslation": 4,
+      "Typos": 6,
+      "Untranslatable": 14,
+      "PluralsCandidate": 13,
+      "StringFormatCount": 17,
+      "UnusedQuantity": 23,
+      "GetInstance": 1,
+      "TrustAllX509TrustManager": 3,
+      "ExportedService": 1,
+      "Recycle": 8,
+      "ObsoleteSdkInt": 3,
+      "StaticFieldLeak": 5,
+      "VectorPath": 4,
+      "AutoboxingStateCreation": 5,
+      "LaunchActivityFromNotification": 1,
+      "UnusedResources": 144,
+      "UselessLeaf": 8,
+      "UselessParent": 2,
+      "IconXmlAndPng": 2,
+      "UseKtx": 247,
+      "RtlSymmetry": 2,
+      "RtlHardcoded": 12
+    },
+    "analysis_warning": "Kotlin metadata version incompatibility diagnostics emitted; establish trustworthy analysis before accepting findings as exhaustive."
+  },
+  "arm64_apk": {
+    "bytes": 139354597,
+    "sha256": "a9a2963c8f43af3270960b941e79f639840adbac3c29eca9d69a0ee7e92daa6c",
+    "package": "com.dev.bitchord"
+  },
+  "device": {
+    "model": "SM-S926B",
+    "android": "16",
+    "checks_passed": [
+      "install user 0",
+      "ART verify",
+      "cold launch",
+      "onboarding with sign-in skipped",
+      "Home and Library navigation",
+      "local collection browsing",
+      "local playback media session",
+      "pause and full player"
+    ],
+    "not_verified": [
+      "queue editing",
+      "synchronized lyrics",
+      "background lifecycle",
+      "USB or bit-perfect fidelity",
+      "provider accounts"
+    ],
+    "last_observed_playback": "paused"
+  }
+}

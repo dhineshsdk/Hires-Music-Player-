@@ -1,3 +1,7 @@
+# Current continuation entry point — 16 November 2026
+
+Read `docs/handoff/CONTINUE_HERE.md` and `reports/Final implementation plan.md` before acting. The user chose the complete BitChord app in `bitchord/` as the active application, preserving its real UI. This supersedes the old workstation UI direction below. `src/` remains the engine donor and earlier preview. Current branch: `codex/bitchord-base`. The baseline APK builds, but existing unit-test and lint failures are recorded; do not call all gates passed. Older HANDOFF files describe previous milestones, not the current checkout. Current work allocation and commands are in the continuation document. Audio safety and DRM restrictions below remain in force.
+
 # Multi-Agent Orchestration & Protocol Specification (`AGENTS.md` / `CLAUDE.md`)
 
 ## 1. Project Identity & Shared Context

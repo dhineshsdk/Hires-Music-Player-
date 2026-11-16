@@ -1,0 +1,7 @@
+# Preserve the supplied BitChord snapshot byte-for-byte across platforms.
+# Its own .gitattributes retains the explicit LF rule for the FFmpeg script.
+bitchord/** -text
+
+.github/workflows/bitchord-baseline.yml text eol=lf
+README.md text eol=lf
+docs/porting/bitchord-baseline.md text eol=lf
