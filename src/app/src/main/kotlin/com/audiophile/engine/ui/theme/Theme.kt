@@ -1,40 +1,41 @@
 package com.audiophile.engine.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-
-private val DarkColorScheme = darkColorScheme(
-    primary = ChampagneGold,
-    onPrimary = Color.Black,
-    primaryContainer = DarkSurfaceElevated,
-    onPrimaryContainer = ChampagneGoldBright,
-    secondary = NeonCyan,
-    onSecondary = Color.Black,
-    secondaryContainer = DarkSurfaceElevated,
-    onSecondaryContainer = NeonCyan,
-    tertiary = RoonPurple,
-    background = DarkBackground,
-    onBackground = TextPrimary,
-    surface = DarkSurface,
-    onSurface = TextPrimary,
-    surfaceVariant = DarkSurfaceElevated,
-    onSurfaceVariant = TextSecondary,
-    outline = DarkSurfaceBorder,
-    error = CrimsonAlert
-)
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 
 @Composable
-fun AudiophileEngineTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
-    // We enforce high-contrast audiophile dark aesthetic for studio OLED accuracy
-    MaterialTheme(
-        colorScheme = DarkColorScheme,
-        typography = AudiophileTypography,
-        content = content
-    )
+fun AudiophileEngineTheme(content: @Composable () -> Unit) {
+    val look = LookState.look
+    val p = palette
+    val scheme = remember(look) {
+        darkColorScheme(
+            primary = p.accent,
+            onPrimary = p.onAccent,
+            primaryContainer = p.glassFillStrong,
+            onPrimaryContainer = p.ink,
+            secondary = p.ink2,
+            onSecondary = p.onAccent,
+            secondaryContainer = p.glassFillStrong,
+            onSecondaryContainer = p.ink,
+            tertiary = p.ink2,
+            background = p.ground,
+            onBackground = p.ink,
+            surface = p.ground,
+            onSurface = p.ink,
+            surfaceVariant = p.glassFillStrong,
+            onSurfaceVariant = p.ink2,
+            surfaceContainer = p.ground,
+            surfaceContainerHigh = p.ground,
+            outline = p.glassLine,
+            error = p.alert
+        )
+    }
+    val typography = remember(look) { typographyFor(look) }
+    MaterialTheme(colorScheme = scheme, typography = typography) {
+        CompositionLocalProvider(LocalTextStyle provides typography.bodyLarge, content = content)
+    }
 }

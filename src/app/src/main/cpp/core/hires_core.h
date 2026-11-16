@@ -50,7 +50,7 @@ extern "C" {
 /* ------------------------------------------------------------------------------------ */
 
 #define HRC_API_VERSION_MAJOR 0
-#define HRC_API_VERSION_MINOR 1
+#define HRC_API_VERSION_MINOR 2
 #define HRC_API_VERSION ((HRC_API_VERSION_MAJOR << 16) | HRC_API_VERSION_MINOR)
 
 /* Version the engine library was built with. A caller refuses to run when the major differs. */
@@ -152,12 +152,18 @@ typedef int32_t hrc_source_kind;
 #define HRC_SOURCE_FD         0  /* a readable, seekable file descriptor */
 #define HRC_SOURCE_CALLBACKS  1
 
+/* Bit flags in hrc_source.flags (v0.2; zero from an older caller). */
+#define HRC_SOURCE_FLAG_NO_CROSSFADE  0x1u  /* queued tracks only: join the track before this one
+                                               gaplessly even when crossfade is on (same album the
+                                               user keeps untouched, or an album that is gapless by
+                                               design: live, classical, mixed) */
+
 typedef struct hrc_source {
     uint32_t struct_size;
     hrc_source_kind kind;
     uint64_t track_id;                            /* caller's id; echoed in telemetry and events */
     int32_t fd;                                   /* HRC_SOURCE_FD */
-    uint32_t reserved0;
+    uint32_t flags;                               /* HRC_SOURCE_FLAG_* */
     const hrc_byte_source_callbacks* callbacks;   /* HRC_SOURCE_CALLBACKS; must stay valid */
     void* user;                                   /* passed to every callback */
 } hrc_source;
@@ -181,6 +187,39 @@ HRC_EXPORT hrc_result hrc_open(hrc_engine* engine, const hrc_source* source);
 HRC_EXPORT hrc_result hrc_queue_next(hrc_engine* engine, const hrc_source* source);
 HRC_EXPORT hrc_result hrc_clear_next(hrc_engine* engine);
 
+/*
+ * Gapless and crossfade (v0.2).
+ *
+ * Gapless is always on: a decoder cuts the encoder's delay and padding (MP3 LAME/Info header,
+ * M4A iTunSMPB and edit list, Opus pre-skip), so consecutive tracks join exactly where the music
+ * ends and starts, and the next track is decoded ahead of the boundary.
+ *
+ * Crossfade is optional and mixes the end of one track with the start of the next, so it is NOT
+ * bit-perfect while it runs: the mixed stretch is float-mixed and dithered, and the receipt for
+ * that stretch is HRC_GRADE_BEST_EFFORT. With crossfade off, or outside the fade, audio is the
+ * file's own samples. A crossfade needs both tracks to share sample rate, sample format and
+ * channel count (the engine does not resample); any other pair is joined gaplessly or, when the
+ * output follows the source, by a reopen. Tracks queued with HRC_SOURCE_FLAG_NO_CROSSFADE are
+ * never faded into. A track shorter than twice the fade gets a shorter fade; the engine needs a
+ * known track length (hrc_source_telemetry.total_frames) to start the fade in time.
+ */
+#define HRC_FADE_LINEAR        0  /* gains add to 1 */
+#define HRC_FADE_EQUAL_POWER   1  /* squares add to 1 (default; level stays even) */
+#define HRC_FADE_LOGARITHMIC   2  /* log curve: the outgoing track holds longer, the incoming rises fast */
+
+#define HRC_CROSSFADE_MIN_MS   500u
+#define HRC_CROSSFADE_MAX_MS   12000u
+
+typedef struct hrc_transition_config {
+    uint32_t struct_size;
+    uint32_t crossfade_enabled;   /* 0 off (bit-exact gapless), 1 on */
+    uint32_t crossfade_ms;        /* clamped to HRC_CROSSFADE_MIN_MS..HRC_CROSSFADE_MAX_MS */
+    int32_t curve;                /* HRC_FADE_* */
+} hrc_transition_config;
+
+/* Takes effect for the next boundary that has not yet started fading. Any thread. */
+HRC_EXPORT hrc_result hrc_set_transition(hrc_engine* engine, const hrc_transition_config* config);
+
 /* ------------------------------------------------------------------------------------ */
 /* Transport                                                                            */
 /* ------------------------------------------------------------------------------------ */
@@ -200,7 +239,8 @@ HRC_EXPORT hrc_result hrc_close(hrc_engine* engine);
 /* Which output path the user selected. */
 typedef int32_t hrc_output_kind;
 #define HRC_OUTPUT_A  0  /* AAudio through Android; bit-perfect mixer on Android 14+ (default) */
-#define HRC_OUTPUT_B  1  /* our exclusive usbfs UAC driver (Phase 5: returns HRC_E_NOT_BUILT) */
+#define HRC_OUTPUT_B  1  /* our exclusive usbfs UAC driver; needs usb_fd. If it cannot open (or the DAC is unplugged) the
+                       engine falls back to Output A and says so in telemetry */
 
 /* The backend that actually carries audio. */
 typedef int32_t hrc_output_backend;
@@ -211,8 +251,8 @@ typedef int32_t hrc_output_backend;
 
 /* Bit flags in hrc_output_config.flags */
 #define HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER  0x1u  /* caller set a bit-perfect mixer for this format and
-                                                    Android confirmed it; dropped by a reopen that
-                                                    changes the format, so set it again then */
+                                                    Android confirmed it; dropped by a reopen at a
+                                                    track boundary, so set it again then */
 
 typedef struct hrc_output_config {
     uint32_t struct_size;
@@ -387,6 +427,9 @@ typedef int32_t hrc_event_type;
 #define HRC_EVENT_OUTPUT_LOST      6  /* device unplugged or stream died */
 #define HRC_EVENT_ERROR            7  /* value = hrc_result */
 #define HRC_EVENT_RECEIPT_MISMATCH 8  /* value = first mismatching frame */
+#define HRC_EVENT_CROSSFADE        9  /* track_id = the track fading in; value = fade length in
+                                         frames of its sample rate. The audio is mixed from here
+                                         for that long, so it is not bit-exact (v0.2) */
 
 typedef struct hrc_event {
     uint32_t struct_size;

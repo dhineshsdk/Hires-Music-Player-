@@ -9,9 +9,10 @@ cpp="$here/../../main/cpp"
 out="${1:-$(mktemp -d)}"
 mkdir -p "$out"
 
-srcs=("$cpp/core/PlaybackEngine.cpp" "$cpp/core/HiresCore.cpp" "$cpp/decoders/WavDecoder.cpp"
+srcs=("$cpp/core/PlaybackEngine.cpp" "$cpp/core/HiresCore.cpp" "$cpp/core/UsbExclusiveOutput.cpp" "$cpp/core/ExynosThreadGovernor.cpp"
+      "$cpp/drivers/UsbIsoPump.cpp" "$cpp/decoders/WavDecoder.cpp"
       "$cpp/decoders/FlacDecoder.cpp" "$cpp/decoders/DsdDecoder.cpp" "$cpp/decoders/ReadAheadSource.cpp")
-inc=(-I"$cpp/core" -I"$cpp/dsp" -I"$cpp/decoders")
+inc=(-I"$cpp/core" -I"$cpp/dsp" -I"$cpp/decoders" -I"$cpp/drivers")
 libs=(-lFLAC)
 defs=()
 if pkg-config --exists libavformat libavcodec libavutil 2>/dev/null; then
@@ -33,6 +34,12 @@ if [[ ${#defs[@]} -gt 0 ]]; then
         -sample_fmt s16p -c:a alac "$out/e16.m4a"
     ffmpeg -v error -y -i "$out/e16.m4a" -f s16le -c:a pcm_s16le "$out/e16.raw"
     cases+=("$out/e16.m4a" "$out/e16.raw" "FFmpeg")
+    # Lossy files whose encoders pad the start and end: two copies must join with nothing between
+    # them, and the engine must report the music length rather than the encoded length.
+    chirp='aevalsrc=0.3*sin(2*PI*(300*t+2500*t*t))|0.3*sin(2*PI*(500*t+1800*t*t)):s=44100:d=4'
+    ffmpeg -v error -y -f lavfi -i "$chirp" -c:a libmp3lame -b:a 192k "$out/gap.mp3"
+    ffmpeg -v error -y -f lavfi -i "$chirp" -c:a aac -b:a 192k "$out/gap.m4a"
+    cases+=(--gapless "$out/gap.mp3" 176400 --gapless "$out/gap.m4a" 176400)
 fi
 
 for san in "address,undefined" "thread"; do

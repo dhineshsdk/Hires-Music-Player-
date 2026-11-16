@@ -38,8 +38,11 @@ add_library(audiophile_engine SHARED
     core/ExynosThreadGovernor.cpp
     core/PlaybackEngine.cpp
     core/OboeOutput.cpp
+    core/UsbExclusiveOutput.cpp
+    drivers/UsbIsoPump.cpp
     core/HiresCore.cpp
     core/hires_core_abi.c
+    dsp/VulkanConvolver.cpp
     decoders/WavDecoder.cpp
     decoders/FlacDecoder.cpp
     decoders/DsdDecoder.cpp
@@ -64,8 +67,11 @@ target_compile_options(audiophile_engine PRIVATE
 target_include_directories(audiophile_engine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp
+    ${CMAKE_CURRENT_SOURCE_DIR}/decoders
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers
     ${CMAKE_CURRENT_SOURCE_DIR}/jni
+    ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/soxr
 )
 
 # FFmpeg (LGPL) as dynamic .so files, for ALAC/APE/WavPack/MP3/AAC/Opus/Vorbis. Build them once with
@@ -85,6 +91,9 @@ else()
     message(STATUS "FFmpeg not found in ${HIRES_FFMPEG_DIR}: building without the FFmpeg decoders")
 endif()
 
+# libsoxr (LGPL-2.1): dynamic shared library for high quality resampling
+add_subdirectory(third_party/soxr)
+
 find_library(log-lib log)
 find_library(android-lib android)
 find_library(vulkan-lib vulkan)
@@ -94,6 +103,7 @@ target_link_libraries(audiophile_engine
     PRIVATE
     oboe
     FLAC
+    soxr
     ${log-lib}
     ${android-lib}
     ${vulkan-lib}

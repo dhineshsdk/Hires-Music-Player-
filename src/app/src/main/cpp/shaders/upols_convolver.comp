@@ -1,9 +1,9 @@
 #version 450
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-#define FFT_SIZE 256
-#define HALF_SIZE 128
-#define NUM_PARTITIONS 1024
+#define FFT_SIZE 1024
+#define HALF_SIZE 512
+#define MAX_PARTITIONS 256
 
 struct Complex {
     float r;
@@ -15,23 +15,28 @@ Complex complex_mul(Complex a, Complex b) {
 }
 
 layout(std430, binding = 0) readonly buffer InputTimeDomain {
+    // Interleaved or per-channel input: channel 0 = L, channel 1 = R, length 1024 each
     float in_samples[];
 };
 
 layout(std430, binding = 1) readonly buffer PartitionIRFDL {
+    // Partition frequency domain data: [channel][partition][FFT_SIZE]
     Complex ir_partitions[];
 };
 
 layout(std430, binding = 2) buffer FDLHistory {
+    // Frequency domain delay line history: [channel][partition][FFT_SIZE]
     Complex fdl_history[];
 };
 
 layout(std430, binding = 3) writeonly buffer OutputTimeDomain {
+    // Output time domain: [channel][HALF_SIZE]
     float out_samples[];
 };
 
 layout(push_constant) uniform PushConstants {
     uint write_idx;
+    uint num_partitions;
 } push;
 
 shared Complex lds_scratch[FFT_SIZE];
@@ -39,13 +44,20 @@ shared Complex lds_scratch[FFT_SIZE];
 void main() {
     uint tid = gl_LocalInvocationID.x;
     uint total_threads = gl_WorkGroupSize.x;
+    uint ch = gl_WorkGroupID.x; // 0 for Left, 1 for Right
 
+    uint in_ch_offset = ch * FFT_SIZE;
+    uint fdl_ch_offset = ch * (MAX_PARTITIONS * FFT_SIZE);
+    uint out_ch_offset = ch * HALF_SIZE;
+
+    // 1. Load 1024 input samples into LDS
     for (uint i = tid; i < FFT_SIZE; i += total_threads) {
-        lds_scratch[i].r = in_samples[i];
+        lds_scratch[i].r = in_samples[in_ch_offset + i];
         lds_scratch[i].i = 0.0;
     }
     barrier();
 
+    // 2. Forward FFT (Decimation-in-Frequency)
     for (uint stride = FFT_SIZE / 2; stride > 0; stride /= 2) {
         for (uint i = tid; i < FFT_SIZE / 2; i += total_threads) {
             uint j = ((i / stride) * (stride * 2)) + (i % stride);
@@ -60,17 +72,21 @@ void main() {
         barrier();
     }
 
+    // 3. Store current spectrum in FDL history
+    uint cur_hist_offset = fdl_ch_offset + (push.write_idx * FFT_SIZE);
     for (uint i = tid; i < FFT_SIZE; i += total_threads) {
-        fdl_history[push.write_idx * FFT_SIZE + i] = lds_scratch[i];
+        fdl_history[cur_hist_offset + i] = lds_scratch[i];
     }
     barrier();
 
+    // 4. Complex frequency-domain multiply-accumulate across partitions
+    uint n_parts = min(push.num_partitions, uint(MAX_PARTITIONS));
     for (uint bin = tid; bin < FFT_SIZE; bin += total_threads) {
         Complex accum = Complex(0.0, 0.0);
-        for (uint p = 0; p < NUM_PARTITIONS; ++p) {
-            uint hist_idx = (push.write_idx + NUM_PARTITIONS - p) % NUM_PARTITIONS;
-            Complex X = fdl_history[hist_idx * FFT_SIZE + bin];
-            Complex H = ir_partitions[p * FFT_SIZE + bin];
+        for (uint p = 0; p < n_parts; ++p) {
+            uint hist_idx = (push.write_idx + MAX_PARTITIONS - p) % MAX_PARTITIONS;
+            Complex X = fdl_history[fdl_ch_offset + (hist_idx * FFT_SIZE) + bin];
+            Complex H = ir_partitions[fdl_ch_offset + (p * FFT_SIZE) + bin];
             Complex prod = complex_mul(X, H);
             accum.r += prod.r;
             accum.i += prod.i;
@@ -79,6 +95,7 @@ void main() {
     }
     barrier();
 
+    // 5. Inverse FFT (Decimation-in-Time)
     for (uint stride = 1; stride < FFT_SIZE; stride *= 2) {
         for (uint i = tid; i < FFT_SIZE / 2; i += total_threads) {
             uint j = ((i / stride) * (stride * 2)) + (i % stride);
@@ -93,7 +110,8 @@ void main() {
         barrier();
     }
 
+    // 6. Overlap-Save: Discard first HALF_SIZE (512), write last HALF_SIZE (512) scaled by 1/FFT_SIZE
     for (uint i = tid; i < HALF_SIZE; i += total_threads) {
-        out_samples[i] = lds_scratch[i + HALF_SIZE].r / float(FFT_SIZE);
+        out_samples[out_ch_offset + i] = lds_scratch[i + HALF_SIZE].r / float(FFT_SIZE);
     }
 }

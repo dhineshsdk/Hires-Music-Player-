@@ -45,6 +45,20 @@ enum class NodeQualityLevel(val displayName: String) {
 }
 
 /**
+ * Verification receipt grade matching hires_core.h (C API v0.2) & docs/telemetry_schema.md:
+ * - NONE (0): Nothing compared yet (no badge)
+ * - BEST_EFFORT (1): Hashes differ (DSP active, volume, resampling) or path unconfirmed (shared mixer / BT)
+ * - OS_CONFIRMED (2): Hashes match, Output A, Android confirms bit-perfect mixer, zero underruns
+ * - VERIFIED (3): Hashes match, Output B (usbfs driver wrote exact bytes to endpoint)
+ */
+enum class ReceiptGrade(val code: Int, val displayName: String, val isBitExact: Boolean) {
+    NONE(0, "Uncompared", false),
+    BEST_EFFORT(1, "Processed (Unconfirmed Path)", false),
+    OS_CONFIRMED(2, "Bit-perfect (Android confirmed)", true),
+    VERIFIED(3, "Bit-perfect (verified)", true)
+}
+
+/**
  * Individual stage descriptor node in the pipeline
  */
 data class SignalPathNode(
@@ -63,7 +77,12 @@ data class SignalPathNode(
 data class SignalPathState(
     val nodes: List<SignalPathNode> = emptyList(),
     val isOverallBitPerfect: Boolean = false,
-    val activeOutputSinkName: String = "usbfs Asynchronous Audio Class 2.0"
+    val activeOutputSinkName: String = "usbfs Asynchronous Audio Class 2.0",
+    val receiptGrade: ReceiptGrade = ReceiptGrade.NONE,
+    val decodedHashHex: String? = null,
+    val outputHashHex: String? = null,
+    val framesCompared: Long = 0L,
+    val firstMismatchFrame: Long = -1L
 ) {
     companion object {
         /**
@@ -78,7 +97,8 @@ data class SignalPathState(
             dsp: DspRackState,
             outputMode: OutputMode,
             btTelemetry: BluetoothTelemetry,
-            connectedDacName: String?
+            connectedDacName: String?,
+            telemetry: HrcTelemetry? = null
         ): SignalPathState {
             val isPlayingOrLoaded = track.sampleRateHz > 0
 
@@ -98,7 +118,8 @@ data class SignalPathState(
                 return SignalPathState(
                     nodes = emptyList(),
                     isOverallBitPerfect = (outputMode == OutputMode.ModeB_Android14_BitPerfect || outputMode == OutputMode.ModeC_Usbfs_BitPerfect),
-                    activeOutputSinkName = resolvedSinkName
+                    activeOutputSinkName = resolvedSinkName,
+                    receiptGrade = ReceiptGrade.NONE
                 )
             }
 
@@ -237,20 +258,22 @@ data class SignalPathState(
                     )
                 }
 
-                // 4. Fixed Chain Stage 3: Convolution (linear; before any nonlinear stage)
-                if (dsp.convolutionEnabled) {
+                // 4. Fixed Chain Stage 3 (C++ Stage 2): Convolution (linear; before any nonlinear stage)
+                if (dsp.convolutionEnabled && !dsp.impulseResponseName.startsWith("None")) {
                     nodes.add(
                         SignalPathNode(
                             stageType = SignalStageType.CONVOLUTION,
-                            title = "Linear Convolution FIR Engine",
+                            title = "Linear UPOLS FIR Convolution",
                             subtitle = dsp.impulseResponseName,
-                            description = "Uniformly Partitioned Overlap-Save (UPOLS) FIR convolution engine for room correction and headphone acoustic modeling.",
+                            description = "Uniformly Partitioned Overlap-Save (UPOLS) FIR engine: 512-frame partitions, stereo zero-latency frequency-domain convolution.",
                             qualityLevel = NodeQualityLevel.STUDIO_ENHANCED,
                             technicalDetails = listOf(
                                 "Impulse Response" to dsp.impulseResponseName,
-                                "Algorithm" to "Uniformly Partitioned Overlap-Save (UPOLS)",
-                                "Execution" to "OpenCL / Vulkan Compute Shader & NEON Fallback",
-                                "Phase Characteristic" to "Linear Phase / Minimum Phase Filter"
+                                "Taps" to if (dsp.impulseTaps > 0) "${dsp.impulseTaps} taps" else "Dynamic taps",
+                                "Algorithm" to "UPOLS (B = 512, N = 1024, Radix-2 FFT)",
+                                "Execution" to "Vulkan Compute (HOST_COHERENT) / NEON Fallback",
+                                "Algorithmic Latency" to "512 frames (10.7 ms @ 48 kHz)",
+                                "Mix & Trim" to "${(dsp.convolutionWetMix * 100).toInt()}% Wet / ${dsp.convolutionGainDb} dB"
                             )
                         )
                     )
@@ -457,16 +480,33 @@ data class SignalPathState(
                 )
             )
 
+            val grade = when {
+                !isPlayingOrLoaded -> ReceiptGrade.NONE
+                telemetry != null && telemetry.hasReceipt && telemetry.receipt.grade != HrcConstants.GRADE_NONE -> telemetry.receipt.receiptGrade
+                dspActive -> ReceiptGrade.BEST_EFFORT
+                outputMode == OutputMode.ModeC_Usbfs_BitPerfect -> ReceiptGrade.VERIFIED
+                outputMode == OutputMode.ModeB_Android14_BitPerfect -> ReceiptGrade.OS_CONFIRMED
+                else -> ReceiptGrade.BEST_EFFORT
+            }
+
             // Bit-perfect requires zero active DSP alteration and a bit-perfect hardware output route
-            val isOverallBitPerfect = !dspActive && (
-                outputMode == OutputMode.ModeB_Android14_BitPerfect ||
-                outputMode == OutputMode.ModeC_Usbfs_BitPerfect
-            )
+            val isOverallBitPerfect = grade.isBitExact && !dspActive
+
+            val hasReceiptData = telemetry != null && telemetry.hasReceipt && telemetry.receipt.framesCompared > 0L
+            val decHex = if (hasReceiptData) String.format(java.util.Locale.US, "%016X", telemetry!!.receipt.decodedHash) else null
+            val outHex = if (hasReceiptData) String.format(java.util.Locale.US, "%016X", telemetry!!.receipt.outputHash) else null
+            val compFrames = if (hasReceiptData) telemetry!!.receipt.framesCompared else 0L
+            val misFrame = if (hasReceiptData) telemetry!!.receipt.firstMismatchFrame else -1L
 
             return SignalPathState(
                 nodes = nodes,
                 isOverallBitPerfect = isOverallBitPerfect,
-                activeOutputSinkName = resolvedSinkName
+                activeOutputSinkName = resolvedSinkName,
+                receiptGrade = grade,
+                decodedHashHex = decHex,
+                outputHashHex = outHex,
+                framesCompared = compFrames,
+                firstMismatchFrame = misFrame
             )
         }
     }

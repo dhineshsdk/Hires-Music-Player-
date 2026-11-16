@@ -53,7 +53,7 @@ public:
                                vgetq_lane_u32(mask_accum, 3);
 
         metrics.active_bits_mask = folded_mask;
-        metrics.has_true_24bit_dynamics = (folded_mask & 0xFF) != 0;
+        metrics.has_true_24bit_dynamics = (folded_mask & 0xFF00u) != 0;
 
         float total_energy = vaddvq_f32(v_energy_total);
         float ultra_energy = vaddvq_f32(v_energy_ultra);
@@ -86,7 +86,7 @@ public:
             }
         }
         metrics.active_bits_mask = mask;
-        metrics.has_true_24bit_dynamics = (mask & 0xFF) != 0;
+        metrics.has_true_24bit_dynamics = (mask & 0xFF00u) != 0;
         metrics.ultrasonic_to_baseband_ratio = (energy_total > 0.0f) ? (energy_ultra / energy_total) : 0.0f;
         metrics.is_fake_upsampled = (sample_rate_hz >= 88200.0f) && (metrics.ultrasonic_to_baseband_ratio < 1e-9f);
         return metrics;

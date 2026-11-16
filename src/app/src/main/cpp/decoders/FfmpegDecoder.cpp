@@ -1,6 +1,8 @@
 #include "FfmpegDecoder.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include "GaplessInfo.hpp"
 #include "hires_core.h"
 
 extern "C" {
@@ -186,8 +188,57 @@ DecodeError FfmpegDecoder::Open(SeekableSource& source) noexcept {
     } else if (fmt_->duration != AV_NOPTS_VALUE && fmt_->duration > 0) {
         total = av_rescale(fmt_->duration, frame_->sample_rate, AV_TIME_BASE);
     }
-    format_.totalFrames = static_cast<uint64_t>(total);
+    uint64_t music = static_cast<uint64_t>(total);
+    ApplyGaplessInfo(stream, music);
+    format_.totalFrames = music;
     return DecodeError::None;
+}
+
+// Settles the length of the music and any priming we must cut ourselves (see the header).
+void FfmpegDecoder::ApplyGaplessInfo(const AVStream* stream, uint64_t& total) noexcept {
+    GaplessInfo info;
+    if (container_ == HRC_CONTAINER_MP3) {
+        // libavformat trims the start from this header but does not tell us the end.
+        uint8_t head[10];
+        size_t offset = 0;
+        if (source_->ReadAt(0, head, sizeof(head)) == static_cast<int64_t>(sizeof(head))) offset = Id3v2Size(head, sizeof(head));
+        uint8_t buffer[4096];
+        const int64_t got = source_->ReadAt(offset, buffer, sizeof(buffer));
+        if (got > 0) info = ParseLameHeader(buffer, static_cast<size_t>(got));
+        if (info.present && info.valid > 0 && info.valid <= total + 1152) {
+            total = info.valid;
+            validFrames_ = info.valid;
+        }
+    } else {
+        const AVDictionaryEntry* tag = av_dict_get(fmt_->metadata, "iTunSMPB", nullptr, 0);
+        if (tag == nullptr) tag = av_dict_get(stream->metadata, "iTunSMPB", nullptr, 0);
+        if (tag != nullptr) info = ParseItunSmpb(tag->value);
+        if (info.present && info.valid > 0) {
+            if (total == info.valid) {
+                validFrames_ = info.valid;              // the container's timeline already starts at the music
+            } else if (total >= info.valid + info.delay) {
+                startSkip_ = info.delay;                // the timeline still holds the priming: cut it here
+                validFrames_ = info.valid;
+                total = info.valid;
+            }
+        }
+    }
+    if (validFrames_ == 0 && total > 0 && stream->duration != AV_NOPTS_VALUE && stream->duration > 0 &&
+        (container_ == HRC_CONTAINER_MP4 || container_ == HRC_CONTAINER_WAVPACK || container_ == HRC_CONTAINER_APE ||
+         container_ == HRC_CONTAINER_AIFF || container_ == HRC_CONTAINER_W64)) {
+        // These containers state an exact length (for M4A it is the edit-list duration, which
+        // excludes the encoder's end padding even though the codec still emits it).
+        validFrames_ = total;
+    }
+    // Priming of our own to discard before the first sample is returned.
+    uint64_t remaining = startSkip_;
+    while (remaining > 0 && Fill()) {
+        const uint64_t avail = static_cast<uint64_t>(frame_->nb_samples) - frameOffset_;
+        const uint64_t n = avail < remaining ? avail : remaining;
+        frameOffset_ += static_cast<size_t>(n);
+        position_ += n;
+        remaining -= n;
+    }
 }
 
 bool FfmpegDecoder::Fill() noexcept {
@@ -198,25 +249,24 @@ bool FfmpegDecoder::Fill() noexcept {
 
         const int got = avcodec_receive_frame(codec_, frame_);
         if (got == 0) {
-            // Locate the frame on the timeline when the container gave a timestamp.
-            if (frame_->pts != AV_NOPTS_VALUE) {
-                AVStream* stream = fmt_->streams[streamIndex_];
-                const int64_t start = stream->start_time != AV_NOPTS_VALUE ? stream->start_time : 0;
-                const int64_t at = av_rescale_q(frame_->pts - start, stream->time_base, AVRational{1, frame_->sample_rate});
-                if (at >= 0 && skipUntil_ != 0) position_ = static_cast<uint64_t>(at);
-            }
-            if (skipUntil_ != 0) {   // after a seek: land on the exact frame
-                const uint64_t n = static_cast<uint64_t>(frame_->nb_samples);
-                if (position_ + n <= skipUntil_) {
-                    position_ += n;
+            if (seekPending_) {   // after a seek: land on the exact frame
+                // Where this frame sits on the timeline: its timestamp when the container gave one.
+                int64_t at = static_cast<int64_t>(position_);
+                if (frame_->pts != AV_NOPTS_VALUE) {
+                    AVStream* stream = fmt_->streams[streamIndex_];
+                    const int64_t start = stream->start_time != AV_NOPTS_VALUE ? stream->start_time : 0;
+                    at = av_rescale_q(frame_->pts - start, stream->time_base, AVRational{1, frame_->sample_rate});
+                }
+                const int64_t n = frame_->nb_samples;
+                const int64_t want = static_cast<int64_t>(skipUntil_);
+                if (at + n <= want) {   // wholly before the target (or encoder priming before the start)
                     av_frame_unref(frame_);
+                    position_ = static_cast<uint64_t>(std::max<int64_t>(at + n, 0));
                     continue;
                 }
-                if (position_ < skipUntil_) {
-                    frameOffset_ = static_cast<size_t>(skipUntil_ - position_);
-                    position_ = skipUntil_;
-                }
-                skipUntil_ = 0;
+                if (at < want) frameOffset_ = static_cast<size_t>(want - at);
+                position_ = skipUntil_;
+                seekPending_ = false;
             }
             if (sampleFmt_ >= 0 && (frame_->format != sampleFmt_ || frame_->ch_layout.nb_channels != format_.channels ||
                                      static_cast<uint32_t>(frame_->sample_rate) != format_.sampleRate)) {
@@ -324,6 +374,12 @@ size_t FfmpegDecoder::ReadFrames(void* dst, size_t maxFrames) noexcept {
     auto* out = static_cast<uint8_t*>(dst);
     const size_t bytesPerFrame = format_.BytesPerFrame();
     size_t done = 0;
+    if (validFrames_ != 0) {   // the encoder's padding after the last real sample never plays
+        const uint64_t at = seekPending_ ? skipUntil_ : position_;   // a pending seek has not landed yet
+        const uint64_t played = at > startSkip_ ? at - startSkip_ : 0;
+        const uint64_t left = played < validFrames_ ? validFrames_ - played : 0;
+        if (left < maxFrames) maxFrames = static_cast<size_t>(left);
+    }
     while (done < maxFrames && Fill()) {
         const size_t avail = static_cast<size_t>(frame_->nb_samples) - frameOffset_;
         const size_t n = avail < maxFrames - done ? avail : maxFrames - done;
@@ -339,15 +395,25 @@ bool FfmpegDecoder::SeekToFrame(uint64_t frame) noexcept {
     if (fmt_ == nullptr || format_.sampleRate == 0) return false;
     AVStream* stream = fmt_->streams[streamIndex_];
     const int64_t start = stream->start_time != AV_NOPTS_VALUE ? stream->start_time : 0;
-    const int64_t ts = start + av_rescale_q(static_cast<int64_t>(frame), AVRational{1, static_cast<int>(format_.sampleRate)}, stream->time_base);
-    if (av_seek_frame(fmt_, streamIndex_, ts, AVSEEK_FLAG_BACKWARD) < 0) return false;
+    frame += startSkip_;
+    // Land a little early and drop frames up to the target: lossy codecs overlap neighbouring
+    // frames, so the first frame after a flush is wrong without the one before it.
+    constexpr int64_t kPreRollFrames = 4096;
+    const int64_t from = static_cast<int64_t>(frame) - kPreRollFrames;   // negative: before the first packet
+    const AVRational rateBase{1, static_cast<int>(format_.sampleRate)};
+    int64_t ts = start + av_rescale_q(from, rateBase, stream->time_base);
+    if (av_seek_frame(fmt_, streamIndex_, ts, AVSEEK_FLAG_BACKWARD) < 0) {
+        ts = start + av_rescale_q(std::max<int64_t>(from, 0), rateBase, stream->time_base);   // some demuxers refuse a negative time
+        if (av_seek_frame(fmt_, streamIndex_, ts, AVSEEK_FLAG_BACKWARD) < 0) return false;
+    }
     avcodec_flush_buffers(codec_);
     av_frame_unref(frame_);
     frameOffset_ = 0;
     drained_ = false;
     ended_ = false;
-    position_ = frame;       // refined by the first decoded frame's timestamp
-    skipUntil_ = frame;      // 0 means no skip pending, which is right for a seek to the start
+    position_ = static_cast<uint64_t>(std::max<int64_t>(from, 0));   // refined by the first decoded frame's timestamp
+    skipUntil_ = frame;
+    seekPending_ = true;
     return true;
 }
 

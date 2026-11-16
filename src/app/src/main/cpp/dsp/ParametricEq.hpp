@@ -62,12 +62,18 @@ public:
         const Coeffs& c = slots_[readSlot_];
         if (resetRequested_.exchange(false, std::memory_order_acq_rel)) {
             for (auto& s : state_) s = {};
+            currentPreampGain_ = c.preampGain;
         }
         if (!c.active) return;
 
+        const double targetGain = c.preampGain;
+        const double stepGain = (targetGain - currentPreampGain_) / static_cast<double>(std::max<size_t>(frames, 1));
+        double gain = currentPreampGain_;
+
         for (size_t f = 0; f < frames; ++f) {
+            gain += stepGain;
             for (int ch = 0; ch < 2; ++ch) {
-                double x = static_cast<double>(interleaved[f * 2 + ch]) * c.preampGain;
+                double x = static_cast<double>(interleaved[f * 2 + ch]) * gain;
                 for (int b = 0; b < c.count; ++b) {
                     const Biquad::Coeffs& k = c.bands[b];
                     State& s = state_[b * 2 + ch];
@@ -79,9 +85,11 @@ public:
                 interleaved[f * 2 + ch] = static_cast<float>(std::clamp(x, -1.0, 1.0));
             }
         }
+        currentPreampGain_ = targetGain;
     }
 
 private:
+    double currentPreampGain_{1.0};
     struct Coeffs {
         std::array<Biquad::Coeffs, kMaxBands> bands{};
         int count{0};

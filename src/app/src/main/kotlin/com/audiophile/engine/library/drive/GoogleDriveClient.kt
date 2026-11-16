@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import com.audiophile.engine.library.source.DriveByteSource
 
 /**
  * Google Drive API v3 Audio Client (Phase 2 Specification).
@@ -29,6 +30,24 @@ class GoogleDriveClient(
     val isConnected: Boolean
         get() = !accessToken.isNullOrBlank()
 
+    /**
+     * Creates a [DriveByteSource] for HTTP Range streaming without downloading the entire file first.
+     */
+    fun openByteSource(file: DriveFileItem): DriveByteSource {
+        return openByteSource(file.id, file.sizeBytes)
+    }
+
+    /**
+     * Creates a [DriveByteSource] by file ID and total size.
+     */
+    fun openByteSource(fileId: String, sizeBytes: Long): DriveByteSource {
+        return DriveByteSource(
+            fileId = fileId,
+            sizeBytes = sizeBytes,
+            tokens = { _ -> accessToken }
+        )
+    }
+
     data class DriveFileItem(
         val id: String,
         val name: String,
@@ -40,8 +59,9 @@ class GoogleDriveClient(
 
     /**
      * Queries Google Drive v3 for audio files (FLAC, WAV, DSD, M4A, MP3).
+     * Automatically indexes FLAC seek points into [seekCache].
      */
-    suspend fun listAudioFiles(folderId: String = "root"): List<DriveFileItem> = withContext(Dispatchers.IO) {
+    suspend fun listAudioFiles(folderId: String = "root", autoIndexFlac: Boolean = true): List<DriveFileItem> = withContext(Dispatchers.IO) {
         val token = accessToken ?: return@withContext emptyList()
         val query = "'$folderId' in parents and trashed = false and (mimeType contains 'audio/' or name contains '.flac' or name contains '.dsf' or name contains '.dff' or name contains '.wav')"
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
@@ -63,16 +83,20 @@ class GoogleDriveClient(
                 val list = mutableListOf<DriveFileItem>()
                 for (i in 0 until files.length()) {
                     val f = files.getJSONObject(i)
-                    list.add(
-                        DriveFileItem(
-                            id = f.getString("id"),
-                            name = f.getString("name"),
-                            mimeType = f.optString("mimeType", "audio/octet-stream"),
-                            sizeBytes = f.optLong("size", 0L),
-                            md5Checksum = f.optString("md5Checksum", null),
-                            modifiedTime = f.optString("modifiedTime", null)
-                        )
+                    val item = DriveFileItem(
+                        id = f.getString("id"),
+                        name = f.getString("name"),
+                        mimeType = f.optString("mimeType", "audio/octet-stream"),
+                        sizeBytes = f.optLong("size", 0L),
+                        md5Checksum = if (f.has("md5Checksum")) f.getString("md5Checksum") else null,
+                        modifiedTime = if (f.has("modifiedTime")) f.getString("modifiedTime") else null
                     )
+                    list.add(item)
+                    if (autoIndexFlac && (item.name.endsWith(".flac", ignoreCase = true) || item.mimeType.contains("flac"))) {
+                        try {
+                            indexFlacDriveFile(item)
+                        } catch (_: Exception) {}
+                    }
                 }
                 list
             } else {
@@ -81,6 +105,11 @@ class GoogleDriveClient(
         } finally {
             connection.disconnect()
         }
+    }
+
+    /** Refreshes and re-indexes Drive audio files. */
+    suspend fun refreshDriveFiles(folderId: String = "root"): List<DriveFileItem> {
+        return listAudioFiles(folderId, autoIndexFlac = true)
     }
 
     /**

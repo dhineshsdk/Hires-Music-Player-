@@ -1,6 +1,8 @@
 #pragma once
+#if defined(__linux__) || defined(__ANDROID__)
 #include <linux/usbdevice_fs.h>
 #include <sys/ioctl.h>
+#endif
 #include <cstdint>
 #include <array>
 #include <span>
@@ -29,6 +31,7 @@ public:
         : fd_(usb_fd), interface_(hid_interface) {}
 
     bool WriteFeatureReport(uint8_t report_id, std::span<const uint8_t> payload) noexcept {
+#if defined(__linux__) || defined(__ANDROID__)
         usbdevfs_ctrltransfer transfer{};
         transfer.bRequestType = 0x21;
         transfer.bRequest = 0x09;
@@ -38,6 +41,11 @@ public:
         transfer.data = const_cast<uint8_t*>(payload.data());
         transfer.timeout = 1000;
         return ioctl(fd_, USBDEVFS_CONTROL, &transfer) >= 0;
+#else
+        (void)report_id;
+        (void)payload;
+        return false;
+#endif
     }
 
     static NormalizedBiquadQ30 SynthesizeBiquadQ30(const EqualizerBandSpecification& spec, double sample_rate) noexcept {
@@ -60,7 +68,7 @@ public:
                 break;
             case FilterTopology::LowShelf: {
                 const double sqrt_A = std::sqrt(A);
-                const double alpha_shelf = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / spec.quality_factor_q - 1.0) + 2.0);
+                const double alpha_shelf = sin_w0 / (2.0 * spec.quality_factor_q);
                 b0 = A * ((A + 1.0) - (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha_shelf);
                 b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cos_w0);
                 b2 = A * ((A + 1.0) - (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha_shelf);
@@ -71,7 +79,7 @@ public:
             }
             case FilterTopology::HighShelf: {
                 const double sqrt_A = std::sqrt(A);
-                const double alpha_shelf = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / spec.quality_factor_q - 1.0) + 2.0);
+                const double alpha_shelf = sin_w0 / (2.0 * spec.quality_factor_q);
                 b0 = A * ((A + 1.0) + (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha_shelf);
                 b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0);
                 b2 = A * ((A + 1.0) + (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha_shelf);

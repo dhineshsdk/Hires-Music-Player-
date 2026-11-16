@@ -7,29 +7,60 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.audiophile.engine.library.LibraryScreen
+import com.audiophile.engine.model.TrackMetadata
 import com.audiophile.engine.state.AudioEngineStateRepository
+import com.audiophile.engine.ui.AppearanceCard
+import com.audiophile.engine.ui.DapModeScreen
 import com.audiophile.engine.ui.DspRackScreen
 import com.audiophile.engine.ui.OutputHeader
+import com.audiophile.engine.ui.TransitionsDialog
+import com.audiophile.engine.ui.QueueSheet
+import com.audiophile.engine.ui.LicensesSheet
 import com.audiophile.engine.ui.PathScreen
 import com.audiophile.engine.ui.PlayingScreen
+import com.audiophile.engine.ui.components.LookBackdrop
+import com.audiophile.engine.ui.components.PlainIcon
+import com.audiophile.engine.ui.components.formatRateDepth
+import com.audiophile.engine.ui.components.glass
+import com.audiophile.engine.ui.components.hasTrack
+import com.audiophile.engine.ui.components.rememberTrackArt
 import com.audiophile.engine.ui.theme.*
+import com.audiophile.engine.ui.bitchord.BitChordApp
 
 /**
  * Main Activity for the Samsung Galaxy S24+ Audiophile Bit-Perfect DAP Workstation
@@ -43,7 +74,9 @@ class MainActivity : ComponentActivity() {
         else Manifest.permission.READ_EXTERNAL_STORAGE
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        LookState.load(this)
         stateRepository = AudioEngineStateRepository.getInstance(this)
 
         val requestPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -63,9 +96,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AudiophileEngineTheme {
-                MainAppScaffold(
-                    stateRepository = stateRepository,
-                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*")) },
+                BitChordApp(
+                    repository = stateRepository,
+                    // DSD files are often octet-stream, so audio/* alone hides them.
+                    onOpenFiles = { pickAudio.launch(arrayOf("audio/*", "application/octet-stream")) },
                     hasAudioPermission = hasAudioPermission.value,
                     onRequestAudioPermission = { requestPermissions.launch(arrayOf(audioPermission)) }
                 )
@@ -86,13 +120,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class NavigationTab(val title: String) {
-    NOW_PLAYING("PLAYING"),
-    LIBRARY("LIBRARY"),
-    SIGNAL_PATH("PATH"),
-    DSP_RACK("DSP"),
-    OUTPUT("OUTPUT")
+enum class NavigationTab(val title: String, val icon: ImageVector) {
+    NOW_PLAYING("Playing", Icons.Rounded.PlayCircle),
+    LIBRARY("Library", Icons.Rounded.LibraryMusic),
+    SIGNAL_PATH("Path", Icons.Rounded.Timeline),
+    DSP_RACK("DSP", Icons.Rounded.Tune),
+    OUTPUT("Output", Icons.Rounded.Usb)
 }
+
+/** Room the floating tab bar (and the mini player above it) takes at the bottom of a tab. */
+private val TabBarSpace = 96.dp
+private val MiniPlayerSpace = 72.dp
 
 @Composable
 fun MainAppScaffold(
@@ -102,6 +140,7 @@ fun MainAppScaffold(
     onRequestAudioPermission: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(NavigationTab.LIBRARY) }
+    var dapOpen by rememberSaveable { mutableStateOf(false) }
     val library by stateRepository.library.collectAsState()
 
     val track by stateRepository.trackMetadata.collectAsState()
@@ -111,65 +150,50 @@ fun MainAppScaffold(
     val signalPath by stateRepository.signalPathState.collectAsState()
     val connectedDevice by stateRepository.connectedUsbDevice.collectAsState()
     val outputMode by stateRepository.outputMode.collectAsState()
+    val art = rememberTrackArt(track)
+    val transitions by stateRepository.transitionSettings.collectAsState()
+    val crossfadeMixing by stateRepository.crossfadeMixing.collectAsState()
+    val hrcTelemetry by stateRepository.hrcTelemetry.collectAsState()
+    val uacRateGuardMessage by stateRepository.uacRateGuardMessage.collectAsState()
+    val autoFlashPeq by stateRepository.autoFlashPeq.collectAsState()
+    val queue by stateRepository.queue.collectAsState()
+    var showTransitions by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
 
-    Scaffold(
-        floatingActionButton = {
-            if (selectedTab == NavigationTab.NOW_PLAYING) {
-                ExtendedFloatingActionButton(
-                    onClick = onOpenFiles,
-                    containerColor = EmberOrange,
-                    contentColor = Color(0xFF1A0E03)
-                ) {
-                    Text(text = "OPEN FILES", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = DarkSurface,
-                tonalElevation = 8.dp
-            ) {
-                NavigationTab.entries.forEach { tab ->
-                    val isSelected = selectedTab == tab
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { selectedTab = tab },
-                        icon = {
-                            Text(
-                                text = when (tab) {
-                                    NavigationTab.NOW_PLAYING -> "▶"
-                                    NavigationTab.LIBRARY -> "♫"
-                                    NavigationTab.SIGNAL_PATH -> "◉"
-                                    NavigationTab.DSP_RACK -> "≡"
-                                    NavigationTab.OUTPUT -> "◆"
-                                },
-                                fontSize = 16.sp,
-                                color = if (isSelected) EmberOrange else TextTertiary
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) EmberOrange else TextTertiary
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = DarkSurfaceElevated
-                        )
-                    )
-                }
-            }
-        },
-        containerColor = DarkBackground
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+    val customIrPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { stateRepository.loadCustomImpulse(it) }
+    }
+
+    if (dapOpen) {
+        Box(Modifier.fillMaxSize().background(palette.ground)) {
+            LookBackdrop(art, Modifier.fillMaxSize())
+            DapModeScreen(
+                track = track,
+                art = art,
+                metrics = metrics,
+                signalPath = signalPath,
+                outputMode = outputMode,
+                connectedDevice = connectedDevice,
+                onPlayPause = { stateRepository.togglePlayPause() },
+                onPrevious = { stateRepository.skipToPrevious() },
+                onNext = { stateRepository.skipToNext() },
+                onSeekTo = { stateRepository.seekTo(it) },
+                onExit = { dapOpen = false },
+                telemetry = hrcTelemetry
+            )
+        }
+        return
+    }
+
+    val showMini = selectedTab != NavigationTab.NOW_PLAYING && track.hasTrack
+    val bottomSpace = TabBarSpace + if (showMini) MiniPlayerSpace else 0.dp
+
+    Box(Modifier.fillMaxSize().background(palette.ground)) {
+        LookBackdrop(art, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().statusBarsPadding()) {
             when (selectedTab) {
                 NavigationTab.LIBRARY -> {
                     LibraryScreen(
@@ -185,6 +209,7 @@ fun MainAppScaffold(
                 NavigationTab.NOW_PLAYING -> {
                     PlayingScreen(
                         track = track,
+                        art = art,
                         signalPath = signalPath,
                         outputMode = outputMode,
                         connectedDevice = connectedDevice,
@@ -192,46 +217,165 @@ fun MainAppScaffold(
                         onPrevious = { stateRepository.skipToPrevious() },
                         onNext = { stateRepository.skipToNext() },
                         onSeekTo = { stateRepository.seekTo(it) },
-                        onOpenPath = { selectedTab = NavigationTab.SIGNAL_PATH }
+                        onOpenPath = { selectedTab = NavigationTab.SIGNAL_PATH },
+                        onOpenOutput = { selectedTab = NavigationTab.OUTPUT },
+                        onOpenDapMode = { dapOpen = true },
+                        onOpenFiles = onOpenFiles,
+                        onOpenQueue = { showQueue = true },
+                        modifier = Modifier.navigationBarsPadding(),
+                        isDspBypassed = dspState.isMasterBypassed,
+                        onToggleDspBypass = { stateRepository.toggleDspBypass() }
                     )
+                    if (showQueue) {
+                        QueueSheet(
+                            queue = queue,
+                            onPlayIndex = { stateRepository.playQueueIndex(it) },
+                            onRemoveIndex = { stateRepository.removeQueueItem(it) },
+                            onClearQueue = { stateRepository.clearQueue() },
+                            onDismiss = { showQueue = false }
+                        )
+                    }
                 }
                 NavigationTab.SIGNAL_PATH -> {
-                    PathScreen(signalPath = signalPath)
+                    PathScreen(signalPath = signalPath, modifier = Modifier.navigationBarsPadding().padding(bottom = bottomSpace))
                 }
                 NavigationTab.DSP_RACK -> {
+                    val hrcTelemetry by stateRepository.hrcTelemetry.collectAsState()
                     DspRackScreen(
                         dspState = dspState,
                         onDspStateChange = { stateRepository.updateDspRack { _ -> it } },
                         connectedDevice = connectedDevice,
                         onSaveDevicePreset = { stateRepository.savePresetForActiveDevice() },
                         onFlashHardwareBiquads = {
-                            connectedDevice?.let { dev ->
-                                val success = stateRepository.usbBridge.flashMoondropFreeDspHardware(dspState.peqBands)
-                                if (!success) {
-                                    stateRepository.usbBridge.flashWalkPlayHardware(dspState.peqBands)
-                                }
-                            }
-                        }
+                            stateRepository.flashHardwareDsp()
+                        },
+                        telemetry = hrcTelemetry,
+                        onLoadConvolutionPreset = { stateRepository.loadConvolutionPreset(it) },
+                        onPickCustomImpulse = { customIrPickerLauncher.launch(arrayOf("audio/*", "application/octet-stream", "*/*")) },
+                        modifier = Modifier.navigationBarsPadding().padding(bottom = bottomSpace)
                     )
                 }
                 NavigationTab.OUTPUT -> {
-                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = bottomSpace)) {
                         OutputHeader(
                             track = track,
                             outputMode = outputMode,
                             connectedDevice = connectedDevice,
                             telemetry = telemetry,
-                            onOutputModeChange = { stateRepository.setOutputMode(it) }
+                            onOutputModeChange = { stateRepository.setOutputMode(it) },
+                            transitions = transitions,
+                            mixing = crossfadeMixing,
+                            onOpenTransitions = { showTransitions = true },
+                            onFlashHardwareDsp = { stateRepository.flashHardwareDsp() },
+                            uacRateGuardMessage = uacRateGuardMessage,
+                            autoFlashPeq = autoFlashPeq,
+                            onToggleAutoFlashPeq = { stateRepository.toggleAutoFlashPeq() },
+                            latencyNs = hrcTelemetry?.output?.latencyNs ?: -1L,
+                            driftPpm = hrcTelemetry?.clock?.driftPpm,
+                            hasClock = hrcTelemetry?.hasClock == true,
+                            onOpenLicenses = { showLicenses = true }
                         )
+                        AppearanceCard(Modifier.padding(horizontal = 16.dp))
                         HardwareProfilesScreen(
                             database = stateRepository.hardwareDatabase,
                             activeConnectedDevice = connectedDevice,
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    if (showTransitions) {
+                        TransitionsDialog(
+                            settings = transitions,
+                            mixing = crossfadeMixing,
+                            currentAlbumName = track.album,
+                            currentAlbumKey = stateRepository.currentAlbumKey(),
+                            onChange = { stateRepository.updateTransitions(it) },
+                            onDismiss = { showTransitions = false }
+                        )
+                    }
+                    if (showLicenses) {
+                        LicensesSheet(onDismiss = { showLicenses = false })
+                    }
                 }
             }
         }
+
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (showMini) {
+                MiniPlayer(
+                    track = track,
+                    art = art,
+                    onOpen = { selectedTab = NavigationTab.NOW_PLAYING },
+                    onPlayPause = { stateRepository.togglePlayPause() },
+                    onNext = { stateRepository.skipToNext() }
+                )
+            }
+            GlassTabBar(selectedTab) { selectedTab = it }
+        }
+    }
+}
+
+@Composable
+private fun GlassTabBar(selected: NavigationTab, onSelect: (NavigationTab) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(68.dp)
+            .glass(RoundedCornerShape(34.dp), palette.ground.copy(alpha = 0.55f))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        NavigationTab.entries.forEach { tab ->
+            val on = tab == selected
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .then(if (on) Modifier.glass(RoundedCornerShape(29.dp), palette.glassFillStrong) else Modifier)
+                    .clickable(role = Role.Tab, onClickLabel = tab.title) { onSelect(tab) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                val tint = if (on) palette.ink else palette.ink3
+                Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                Text(tab.title, color = tint, fontSize = 10.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayer(
+    track: TrackMetadata,
+    art: ImageBitmap?,
+    onOpen: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .glass(RoundedCornerShape(22.dp), palette.ground.copy(alpha = 0.55f))
+            .clickable(role = Role.Button, onClickLabel = "Open Now Playing", onClick = onOpen)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        val cover = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+        if (art != null) Image(art, contentDescription = null, contentScale = ContentScale.Crop, modifier = cover)
+        else Box(cover.background(palette.glassFillStrong))
+        Column(Modifier.weight(1f)) {
+            Text(track.title, color = palette.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOf(track.artist, "${track.format} ${formatRateDepth(track.sampleRateHz, track.bitDepth)}").filter { it.isNotBlank() }.joinToString(" · "),
+                color = palette.ink2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        }
+        PlainIcon(if (track.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (track.isPlaying) "Pause" else "Play", onPlayPause, size = 44.dp, iconSize = 28.dp)
+        PlainIcon(Icons.Rounded.SkipNext, "Next", onNext, size = 44.dp, iconSize = 28.dp)
     }
 }
 
@@ -247,7 +391,6 @@ fun HardwareProfilesScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBackground)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {

@@ -124,6 +124,17 @@ with a few lines of Python.
 | `OS_CONFIRMED` | hashes match, Output A, `MIXER_BIT_PERFECT` set, no OS or engine resampling, zero underruns in the window | "Bit-perfect (Android confirmed)" in soft green |
 | `VERIFIED` | hashes match, Output B (our driver wrote exactly those bytes to the isochronous endpoint), zero underruns in the window | "Bit-perfect (verified)" in soft green |
 
+**Gapless and crossfade windows.** The receipt is kept per window, and a track change opens a new
+one. A gapless change keeps the receipt bit-exact (`reason` Gapless). A crossfade (`hrc_set_transition`)
+opens a `Crossfade` window for the mixed stretch: those frames are a mix of two tracks, so it is
+graded `BEST_EFFORT`, the `CROSSFADE` event fires, and `TRACK_STARTED` fires at the start of the
+fade. The rest of the incoming track follows in a `Continue` window of the same track: no track
+events, and the receipt is bit-exact again. The mix is done in double with TPDF dither on the way
+back to the ring's sample format (no dither for float rings). Only tracks with the same sample
+rate, sample format and channel count fade; anything else stays gapless or reopens, and a track
+queued with `HRC_SOURCE_FLAG_NO_CROSSFADE` is never faded into. With crossfade off no mixing code
+runs and every change is bit-exact.
+
 Open for review: whether an underrun should downgrade the grade (current draft: yes) or be
 shown only next to it.
 
@@ -163,6 +174,7 @@ Discrete things the UI must not miss between two snapshots. Same reader thread.
 | `OUTPUT_LOST` | playing track | 0 |
 | `ERROR` | affected track, or 0 | an `hrc_result` |
 | `RECEIPT_MISMATCH` | playing track | first mismatching frame |
+| `CROSSFADE` | track fading in | fade length in frames |
 
 ## 4. What the engine produces today
 

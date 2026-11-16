@@ -92,6 +92,21 @@ int main(int argc, char** argv) {
         CHECK(sum < total);
     }
 
+    // Variable-blocksize FLAC (STREAMINFO max_blocksize == 0): must not fail with DecodeError::Corrupt.
+    if (flac.size() > 12) {
+        Bytes varFlac = flac;
+        varFlac[10] = 0; // max_blocksize high byte = 0
+        varFlac[11] = 0; // max_blocksize low byte = 0
+        MemorySource varSrc(varFlac.data(), varFlac.size());
+        FlacDecoder varDec;
+        CHECK(varDec.Open(varSrc) == DecodeError::None);
+        CHECK(varDec.Format().sampleRate == f.sampleRate);
+        CHECK(varDec.Format().channels == f.channels);
+        Bytes varBuf(1000 * bpf);
+        const size_t varGot = varDec.ReadFrames(varBuf.data(), 1000);
+        CHECK(varGot > 0);
+    }
+
     if (failures == 0) std::printf("all passed (%s)\n", argv[1]);
     return failures ? 1 : 0;
 }

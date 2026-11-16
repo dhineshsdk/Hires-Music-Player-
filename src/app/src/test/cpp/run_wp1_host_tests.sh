@@ -14,6 +14,7 @@ g++ $FLAGS -O1 -g -fsanitize=address,undefined -I$D read_ahead_source_test.cpp $
 g++ $FLAGS -O1 -g -fsanitize=thread -I$D read_ahead_source_test.cpp $D/ReadAheadSource.cpp -o "$W/ras_tsan" && "$W/ras_tsan"
 
 g++ $FLAGS -O1 -g -fsanitize=address,undefined -I$D -I$C ffmpeg_decoder_test.cpp $D/FfmpegDecoder.cpp $D/ReadAheadSource.cpp $FF -o "$W/ffdec"
+g++ $FLAGS -O1 -g -fsanitize=address,undefined -I$D -I$C gapless_decode_test.cpp $D/FfmpegDecoder.cpp $FF -o "$W/gapless"
 ff() { ffmpeg -v error -y "$@"; }
 cd "$W"
 src() { ff -f lavfi -i "anoisesrc=d=$1:c=pink:r=$2:a=0.7:seed=$3" -af "aformat=channel_layouts=stereo$4" "${@:5}"; }
@@ -36,6 +37,19 @@ src 3 44100 3 ",aformat=sample_fmts=s16" -c:a pcm_s16le x.w64;   ff -i x.w64 -f 
 "$W/ffdec" w.wv    w.raw   3 24 1 10 88200 2
 "$W/ffdec" x.aiff  x.raw   3 24 1 4  192000 2
 "$W/ffdec" x.w64   x16.raw 2 16 1 3  44100 2
+
+# Gapless: the tag parsers, and exact length/alignment of lossy files (no encoder delay or padding).
+SRC='aevalsrc=0.3*sin(2*PI*(300*t+2500*t*t))|0.3*sin(2*PI*(500*t+1800*t*t)):s=44100:d=1'
+ff -f lavfi -i "$SRC" -f f32le chirp.raw
+ff -f lavfi -i "$SRC" -c:a libmp3lame -b:a 192k gap.mp3
+ff -f lavfi -i "$SRC" -c:a aac -b:a 192k gap.m4a
+# Priming that only the iTunSMPB tag describes (no edit list), as iTunes-style files can be.
+ff -f lavfi -i "$SRC" -c:a aac -b:a 192k -use_editlist 0 -movflags +use_metadata_tags \
+   -metadata "iTunSMPB= 00000000 00000400 000003FC 000000000000AC44 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000" gap_smpb.m4a
+"$W/gapless"
+"$W/gapless" gap.mp3 chirp.raw
+"$W/gapless" gap.m4a chirp.raw
+"$W/gapless" gap_smpb.m4a chirp.raw
 cd - >/dev/null
 
 # JNI bridge against a real JVM.

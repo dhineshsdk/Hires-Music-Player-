@@ -4,7 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -13,7 +13,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,10 @@ fun TactileFader(
         .height(170.dp)
 ) {
     val normValue = (value.coerceIn(min, max) - min) / (max - min)
+    val currentVal by rememberUpdatedState(value)
+    val onValChange by rememberUpdatedState(onValueChange)
+    val haptic = LocalHapticFeedback.current
+    var lastSnappedToZero by remember { mutableStateOf(abs(value) < 0.05f) }
 
     Column(
         modifier = modifier,
@@ -58,15 +64,24 @@ fun TactileFader(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .pointerInput(Unit) {
+                .pointerInput(min, max) {
                     detectVerticalDragGestures { change, dragAmount ->
                         change.consume()
                         val height = size.height.toFloat()
                         val deltaNorm = -dragAmount / height
-                        val rawNewValue = value + deltaNorm * (max - min)
+                        val rawNewValue = currentVal + deltaNorm * (max - min)
                         // Detent snap to 0 dB when close
-                        val snappedValue = if (abs(rawNewValue) < 0.35f) 0.0f else rawNewValue
-                        onValueChange(snappedValue.coerceIn(min, max))
+                        val isNearZero = abs(rawNewValue) < 0.35f
+                        val snappedValue = if (isNearZero) 0.0f else rawNewValue
+
+                        if (isNearZero && !lastSnappedToZero) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            lastSnappedToZero = true
+                        } else if (!isNearZero) {
+                            lastSnappedToZero = false
+                        }
+
+                        onValChange(snappedValue.coerceIn(min, max))
                     }
                 }
         ) {

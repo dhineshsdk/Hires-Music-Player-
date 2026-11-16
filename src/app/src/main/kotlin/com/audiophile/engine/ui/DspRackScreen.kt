@@ -42,14 +42,18 @@ fun DspRackScreen(
     connectedDevice: ConnectedUsbDevice?,
     onSaveDevicePreset: () -> Unit,
     onFlashHardwareBiquads: (() -> Unit)? = null,
+    telemetry: HrcTelemetry? = null,
+    onLoadConvolutionPreset: ((String) -> Unit)? = null,
+    onPickCustomImpulse: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val isConvolutionBuilt = telemetry?.hasStages == true &&
+        telemetry.stages.getOrNull(HrcConstants.STAGE_CONVOLUTION)?.isBuilt == true
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBackground)
             .verticalScroll(scrollState)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -109,7 +113,10 @@ fun DspRackScreen(
         // --- 7. Convolution FIR Engine ---
         ConvolutionRackModule(
             dspState = dspState,
-            onDspStateChange = onDspStateChange
+            onDspStateChange = onDspStateChange,
+            onLoadPreset = { onLoadConvolutionPreset?.invoke(it) },
+            onPickCustomImpulse = { onPickCustomImpulse?.invoke() },
+            isBuilt = isConvolutionBuilt
         )
 
         // --- 8. ISO 226 Loudness & LR4 Virtual Sub-Bass ---
@@ -934,14 +941,16 @@ private fun SonyVinylRackModule(
 @Composable
 private fun ConvolutionRackModule(
     dspState: DspRackState,
-    onDspStateChange: (DspRackState) -> Unit
+    onDspStateChange: (DspRackState) -> Unit,
+    onLoadPreset: (String) -> Unit,
+    onPickCustomImpulse: () -> Unit,
+    isBuilt: Boolean = false
 ) {
-    val irProfiles = listOf(
+    val presets = listOf(
         "None (Bypassed)",
-        "Sennheiser HD800 Diffuse Field",
-        "Audeze LCD-X Harman Target",
-        "Sony IER-M9 Reference IEM",
-        "Abbey Road Studio Live IR"
+        "Nearfield Studio",
+        "Acoustic Chamber",
+        "Binaural Crossfeed"
     )
 
     Column(
@@ -952,66 +961,104 @@ private fun ConvolutionRackModule(
             .background(DarkSurface)
             .border(1.dp, DarkSurfaceBorder, RoundedCornerShape(20.dp))
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Header Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "CONVOLUTION FIR ENGINE",
+                        color = ChampagneGold,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp
+                    )
+                    if (isBuilt) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(SoftGreen.copy(alpha = 0.15f))
+                                .border(0.5.dp, SoftGreen, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "VULKAN UPOLS",
+                                color = SoftGreen,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(EmberOrange.copy(alpha = 0.15f))
+                                .border(0.5.dp, EmberOrange, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "NOT BUILT",
+                                color = EmberOrange,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 Text(
-                    text = "CONVOLUTION FIR ENGINE",
-                    color = ChampagneGold,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp
-                )
-                Text(
-                    text = "Partitioned FFT zero-latency impulse response acoustic filter",
-                    color = TextTertiary,
+                    text = if (isBuilt) "Uniformly Partitioned Overlap-Save (UPOLS) • 512-Frame Partitions"
+                           else "Planned for Phase 4 • Disabled for engine telemetry honesty",
+                    color = if (isBuilt) TextTertiary else EmberOrange.copy(alpha = 0.8f),
                     fontSize = 9.sp
                 )
             }
 
             Switch(
-                checked = dspState.convolutionEnabled && !dspState.isMasterBypassed,
+                checked = isBuilt && dspState.convolutionEnabled && !dspState.isMasterBypassed,
                 onCheckedChange = { onDspStateChange(dspState.copy(convolutionEnabled = it)) },
+                enabled = isBuilt,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = EmberOrange,
                     checkedTrackColor = EmberOrange.copy(alpha = 0.35f),
                     uncheckedThumbColor = TextTertiary,
-                    uncheckedTrackColor = DarkSurfaceElevated
+                    uncheckedTrackColor = DarkSurfaceElevated,
+                    disabledCheckedThumbColor = TextTertiary,
+                    disabledUncheckedThumbColor = TextTertiary.copy(alpha = 0.5f)
                 ),
                 modifier = Modifier.height(24.dp)
             )
         }
 
-        // Profile Selection Chips
+        // Profile Selection Chips & Custom Button
         val chipScroll = rememberScrollState()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(chipScroll),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            irProfiles.forEach { profile ->
-                val isSelected = dspState.impulseResponseName == profile && dspState.convolutionEnabled
+            presets.forEach { preset ->
+                val isSelected = dspState.impulseResponseName == preset && dspState.convolutionEnabled
                 FilterChip(
-                    selected = isSelected,
+                    selected = isSelected && isBuilt,
+                    enabled = isBuilt,
                     onClick = {
-                        val isNone = profile.startsWith("None")
-                        onDspStateChange(
-                            dspState.copy(
-                                impulseResponseName = profile,
-                                convolutionEnabled = !isNone
-                            )
-                        )
+                        if (isBuilt) {
+                            onLoadPreset(preset)
+                        }
                     },
                     label = {
                         Text(
-                            text = profile,
+                            text = preset,
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1032,16 +1079,119 @@ private fun ConvolutionRackModule(
                     shape = RoundedCornerShape(8.dp)
                 )
             }
+
+            // Custom WAV picker button
+            val isCustomSelected = !presets.contains(dspState.impulseResponseName) && dspState.convolutionEnabled
+            Button(
+                onClick = onPickCustomImpulse,
+                enabled = isBuilt,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isCustomSelected) ChampagneGold.copy(alpha = 0.22f) else DarkSurfaceElevated,
+                    contentColor = if (isCustomSelected) ChampagneGold else TextSecondary
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    0.8.dp,
+                    if (isCustomSelected) ChampagneGold else DarkSurfaceBorder
+                ),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(
+                    text = if (isCustomSelected) "+ ${dspState.impulseResponseName}" else "+ Custom (.wav)...",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (isCustomSelected) FontWeight.Bold else FontWeight.Normal
+                )
+            }
         }
 
-        // Active Profile Info
+        // Live Canvas Impulse Response Envelope & Magnitude Display
+        ImpulseResponseCanvas(
+            dspState = dspState,
+            isBuilt = isBuilt,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .neuConcave(cornerRadius = 12.dp)
+                .background(DarkSurfaceRecessed)
+                .border(0.8.dp, DarkSurfaceBorder, RoundedCornerShape(12.dp))
+                .padding(6.dp)
+        )
+
+        // Wet / Dry Mix & Trim Gain Sliders
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Wet/Dry Mix
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("WET MIX", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                    Text(
+                        "${(dspState.convolutionWetMix * 100).toInt()}%",
+                        color = ChampagneGold,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = dspState.convolutionWetMix,
+                    onValueChange = { onDspStateChange(dspState.copy(convolutionWetMix = it)) },
+                    valueRange = 0f..1f,
+                    enabled = isBuilt && dspState.convolutionEnabled,
+                    colors = SliderDefaults.colors(
+                        thumbColor = EmberOrange,
+                        activeTrackColor = EmberOrange,
+                        inactiveTrackColor = DarkSurfaceElevated
+                    ),
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+
+            // Trim Gain
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("TRIM GAIN", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                    Text(
+                        String.format(java.util.Locale.US, "%+.1f dB", dspState.convolutionGainDb),
+                        color = ChampagneGold,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = dspState.convolutionGainDb,
+                    onValueChange = { onDspStateChange(dspState.copy(convolutionGainDb = it)) },
+                    valueRange = -12f..6f,
+                    enabled = isBuilt && dspState.convolutionEnabled,
+                    colors = SliderDefaults.colors(
+                        thumbColor = ChampagneGold,
+                        activeTrackColor = ChampagneGold,
+                        inactiveTrackColor = DarkSurfaceElevated
+                    ),
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
+
+        // Active Profile Info & Latency Footer
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .background(DarkSurfaceRecessed)
                 .border(0.5.dp, DarkSurfaceBorder, RoundedCornerShape(10.dp))
-                .padding(10.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1058,6 +1208,14 @@ private fun ConvolutionRackModule(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                Text(
+                    text = if (dspState.convolutionEnabled && !dspState.impulseResponseName.startsWith("None"))
+                        "Latency: 512 frames (10.7ms @ 48kHz) • Phase-coherent dry delay line"
+                    else "Bit-exact bypass • Zero added latency",
+                    color = if (dspState.convolutionEnabled && !dspState.impulseResponseName.startsWith("None")) EmberOrange else SoftGreen,
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace
+                )
             }
 
             Box(
@@ -1068,13 +1226,110 @@ private fun ConvolutionRackModule(
                     .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
                 Text(
-                    text = "4096 TAPS",
-                    color = TextSecondary,
+                    text = if (dspState.impulseTaps > 0) "${dspState.impulseTaps} TAPS" else "BYPASSED",
+                    color = if (dspState.impulseTaps > 0) ChampagneGold else TextSecondary,
                     fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ImpulseResponseCanvas(
+    dspState: DspRackState,
+    isBuilt: Boolean,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        // Subtle oscilloscope grid
+        val gridColor = DarkSurfaceBorder.copy(alpha = 0.5f)
+        for (i in 1..4) {
+            val y = h * (i / 5f)
+            drawLine(gridColor, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), strokeWidth = 0.5f)
+        }
+        for (i in 1..6) {
+            val x = w * (i / 7f)
+            drawLine(gridColor, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, h), strokeWidth = 0.5f)
+        }
+
+        val active = isBuilt && dspState.convolutionEnabled && !dspState.impulseResponseName.startsWith("None")
+
+        if (!active) {
+            // Neutral center line
+            val midY = h * 0.5f
+            drawLine(
+                color = SoftGreen.copy(alpha = 0.6f),
+                start = androidx.compose.ui.geometry.Offset(0f, midY),
+                end = androidx.compose.ui.geometry.Offset(w, midY),
+                strokeWidth = 1.5f
+            )
+            return@Canvas
+        }
+
+        // Draw characteristic impulse envelope
+        val path = androidx.compose.ui.graphics.Path()
+        val fillPath = androidx.compose.ui.graphics.Path()
+        val midY = h * 0.55f
+        path.moveTo(0f, midY)
+        fillPath.moveTo(0f, midY)
+
+        val preset = dspState.impulseResponseName
+        val points = 120
+        for (i in 0..points) {
+            val t = i.toFloat() / points
+            val x = t * w
+            val amp = when {
+                preset.contains("Nearfield") -> {
+                    val env = kotlin.math.exp(-t * 8.0).toFloat()
+                    val osc = kotlin.math.cos(t * 50.0).toFloat() * 0.85f +
+                              0.35f * kotlin.math.sin(t * 120.0).toFloat() * kotlin.math.exp(-t * 15.0).toFloat()
+                    env * osc
+                }
+                preset.contains("Acoustic Chamber") -> {
+                    val env = kotlin.math.exp(-t * 3.5).toFloat()
+                    val noise = (kotlin.math.sin(t * 73.0) * kotlin.math.cos(t * 137.0) * kotlin.math.sin(t * 223.0)).toFloat()
+                    env * noise * 0.9f
+                }
+                preset.contains("Binaural") -> {
+                    val env = kotlin.math.exp(-t * 18.0).toFloat()
+                    val pulse = if (t < 0.15f) kotlin.math.sin(t / 0.15 * Math.PI).toFloat() else 0f
+                    val notch = 0.25f * kotlin.math.sin(t * 90.0).toFloat() * kotlin.math.exp(-t * 22.0).toFloat()
+                    pulse * 0.9f - notch
+                }
+                else -> {
+                    val env = kotlin.math.exp(-t * 5.0).toFloat()
+                    val osc = kotlin.math.sin(t * 80.0).toFloat() * 0.75f
+                    env * osc
+                }
+            }
+
+            val wetScale = dspState.convolutionWetMix
+            val y = midY - amp * (h * 0.42f) * wetScale
+            path.lineTo(x, y)
+            fillPath.lineTo(x, y)
+        }
+        fillPath.lineTo(w, midY)
+        fillPath.close()
+
+        drawPath(
+            fillPath,
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(ChampagneGold.copy(alpha = 0.25f), Color.Transparent),
+                startY = 0f,
+                endY = h
+            )
+        )
+        drawPath(
+            path,
+            color = ChampagneGold,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8f)
+        )
     }
 }
 

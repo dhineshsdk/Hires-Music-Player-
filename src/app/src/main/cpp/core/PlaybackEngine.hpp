@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -6,11 +7,16 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include "../decoders/AudioDecoder.hpp"
 #include "AudioOutput.hpp"
+#include "CrossfadeMixer.hpp"
 #include "EngineTelemetry.hpp"
 #include "LockFreeAudioRingBuffer.hpp"
 #include "ParametricEq.hpp"
+#include "DspChain.hpp"
+#include "UsbExclusiveOutput.hpp"
+#include "SoxrResampler.hpp"
 #include "PcmReceipt.hpp"
 #include "hires_core.h"
 
@@ -42,6 +48,7 @@ struct PcmFormat {
  */
 struct TrackSource {
     uint64_t trackId{0};
+    bool noCrossfade{false};      // join the track before this one gaplessly even when crossfade is on
     PcmFormat format{};
     uint64_t totalFrames{0};
     hrc_source_telemetry info{};
@@ -104,12 +111,19 @@ public:
     hrc_result Open(std::unique_ptr<TrackSource> source);
     hrc_result SetNext(std::unique_ptr<TrackSource> source);
     void ClearNext();
+    // Crossfade between tracks. Off by default: transitions are then gapless and bit-exact.
+    hrc_result SetTransition(const hrc_transition_config& config);
+    // True from the moment a crossfade starts until the audio is the new track's own again.
+    bool IsMixing() const noexcept { return mixing_.load(std::memory_order_acquire); }
     hrc_result Play();
     hrc_result Pause();
     hrc_result SeekToFrame(uint64_t frame);
     hrc_result SeekToMs(int64_t positionMs);
     hrc_result Close();
     hrc_result SetOutput(const hrc_output_config& config);
+    // How Output B is built from (usbFd, interface). The default drives the real device through usbfs;
+    // tests install one that drives a simulated DAC. Call before SetOutput.
+    void SetUsbOutputFactory(UsbOutputFactory factory);
 
     // C API consumer side.
     void ReadTelemetry(hrc_telemetry& out) noexcept;
@@ -117,7 +131,19 @@ public:
 
     // Legacy JNI entry points (NativeAudioEngine.kt). Take ownership of fd.
     bool Open(int fd) { return Open(Wrap(fd)) == HRC_OK; }
-    bool SetNext(int fd) { return SetNext(Wrap(fd)) == HRC_OK; }
+    bool SetNext(int fd, bool allowCrossfade = true) {
+        auto source = Wrap(fd);
+        if (source) source->noCrossfade = !allowCrossfade;
+        return SetNext(std::move(source)) == HRC_OK;
+    }
+    void SetCrossfade(bool enabled, int32_t durationMs, int32_t curve) {
+        hrc_transition_config config{};
+        config.struct_size = sizeof(config);
+        config.crossfade_enabled = enabled ? 1u : 0u;
+        config.crossfade_ms = static_cast<uint32_t>(std::max(durationMs, 0));
+        config.curve = curve;
+        SetTransition(config);
+    }
     // Fixed output format as an android.media.AudioFormat encoding (2, 4, 21 or 22).
     void SetOutputFormat(int32_t encoding, bool bitPerfect);
     void SeekTo(int64_t positionMs) { SeekToMs(positionMs); }
@@ -126,6 +152,12 @@ public:
 
     // Parametric EQ applied in the output callback. Flat or disabled leaves samples untouched.
     void SetEq(const DSP::ParametricEq::Band* bands, int count, double preampDb, bool enabled);
+    // The rest of the fixed DSP chain (gain, phase/vinyl, tube/tape/R2R, crossfeed/sub-bass, loudness, limiter).
+    void SetDsp(const DSP::DspSettings& settings);
+
+    // Stage 2 UPOLS FIR Convolution
+    hrc_result LoadImpulseFd(int fd, float wetMix, float gainDb);
+    void ClearImpulse() noexcept;
 
     State GetState() const noexcept;
     int64_t GetPositionMs() const noexcept;
@@ -150,7 +182,7 @@ private:
     static std::unique_ptr<TrackSource> Wrap(int fd);
 
     // Control-side helpers. *Locked: streamMutex_ held.
-    bool OpenOutputLocked();
+    bool OpenOutputLocked(bool preserveBitPerfectRequest = false);
     void StartDecoder(WindowReason reason, uint64_t windowStartFrame);
     void StopDecoder();
     void ResetRingLocked(const PcmFormat& format, uint64_t trackStartFrame);
@@ -166,14 +198,35 @@ private:
     bool DecodeCodecStep(TrackSource& src);
 #endif
     bool WriteToRing(const uint8_t* data, size_t frames, const PcmFormat& format);
-    bool AdvanceToNext();
+    // Decoded frames of the playing track go through here: held back at the end of the track while
+    // a crossfade could still use them, otherwise straight to the ring.
+    bool Deliver(const TrackSource& src, const uint8_t* data, size_t frames);
+    bool Commit(const uint8_t* data, size_t frames, const PcmFormat& format);  // hash + ring
+    bool FlushTail(size_t frames);        // writes the oldest `frames` held-back frames to the ring
+    void ResetTail();
+    void WaitBoundaryClear();
+    bool FinishTrack();                   // the current track is decoded to its end
+    std::unique_ptr<TrackSource> ClaimNext();
+    void PutBackNext(std::unique_ptr<TrackSource> next);
+    void RestoreStagedLocked();           // decoder stopped: the pre-decoded track goes back in the queue
+    void PrimeNext();                     // decodes the start of the queued track while the ring is full
+    bool AdvanceWith(std::unique_ptr<TrackSource> next);
+    bool CrossfadeInto(std::unique_ptr<TrackSource> next, size_t fadeFrames);
+    size_t FadeFrames(const PcmFormat& format, uint64_t outgoingTotal, uint64_t incomingTotal) const noexcept;
     bool ReopenForNext(std::unique_ptr<TrackSource> next);
-    void BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame);
+    void PublishPending(const TrackSource& src);
+    void BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame, uint64_t mixFrames = 0,
+                     uint64_t windowId = 0);
+    void TryInstallContinue();
     void HashDecoded(const uint8_t* data, size_t frames, const PcmFormat& format);
     void EndWindow();
 
     // Real-time helpers.
-    size_t RenderSegment(uint8_t* out, size_t frames) noexcept;
+    size_t RenderSegment(uint8_t* out, size_t frames, size_t& sourceFramesDrained) noexcept;
+    void FallBackToOutputALocked();
+    void PublishDspStages(uint32_t slot) noexcept;
+    void PublishDspStages() noexcept { PublishDspStages(activeDspSlot_.load(std::memory_order_relaxed)); }
+    void Dither(float* stereo, size_t frames) noexcept;
     void HashOutput(const uint8_t* data, size_t frames) noexcept;
 
     // Consumer helpers.
@@ -185,7 +238,10 @@ private:
     void FillStatic(hrc_telemetry& t) noexcept;
     bool Drain() noexcept;
 
-    std::unique_ptr<AudioOutput> output_;
+    std::unique_ptr<AudioOutput> outputA_;   // Oboe / AAudio (or a test output)
+    std::unique_ptr<AudioOutput> outputB_;   // usbfs, created while Output B is selected
+    AudioOutput* output_{nullptr};           // whichever of the two is selected; guarded by streamMutex_
+    UsbOutputFactory usbFactory_;
 
     // Sources. current_ belongs to the decoder thread while it runs; next_ and retired_ are
     // guarded by sourceMutex_ (control and decoder threads only).
@@ -193,6 +249,31 @@ private:
     std::unique_ptr<TrackSource> next_;
     std::unique_ptr<TrackSource> retired_;   // decoded to the end, audio still in the ring
     std::mutex sourceMutex_;
+    // Pre-decode: the queued track is moved here by the decoder thread, which decodes its first
+    // frames into primed_ while the ring is full. nextVersion_ changes when the app queues or
+    // clears a track, which makes whatever is staged stale. staged_/primed_: decoder thread only
+    // (the control thread touches them only while the decoder is stopped).
+    std::unique_ptr<TrackSource> staged_;
+    uint64_t stagedVersion_{0};
+    uint64_t nextVersion_{0};                // guarded by sourceMutex_
+    std::vector<uint8_t> primed_;
+    size_t primedFrames_{0};
+    bool primeStalled_{false};               // the queued track ended or failed inside the prime
+    bool primeAllowed_{false};               // decoder thread: only while the playing track is being decoded
+    // Crossfade settings (any thread) and decoder-thread state.
+    std::atomic<bool> xfEnabled_{false};
+    std::atomic<uint32_t> xfMs_{8000};
+    std::atomic<int32_t> xfCurve_{HRC_FADE_EQUAL_POWER};
+    std::vector<uint8_t> tail_;              // circular: the last frames of the playing track, not yet in the ring
+    size_t tailCap_{0};
+    size_t tailHead_{0};
+    size_t tailFrames_{0};
+    uint64_t decodePos_{0};                  // frames of the playing track received from its decoder
+    bool pendingContinue_{false};            // a fade ended: its follow-on boundary waits for the first one to clear
+    uint64_t continueWindow_{0};
+    int64_t continueFrame_{0};
+    CrossfadeMixer mixer_;
+    std::vector<uint8_t> mixA_, mixB_, mixOut_;
     std::unique_ptr<uint8_t[]> decodeBuffer_;
     size_t decodeBufferBytes_{0};
     std::unique_ptr<float[]> codecScratch_;  // MediaCodec fallback conversion
@@ -214,6 +295,8 @@ private:
     std::atomic<bool> followsSource_{true};          // read by the decoder thread without streamMutex_
     bool bitPerfect_{false};
     hrc_output_kind outKind_{HRC_OUTPUT_A};
+    int usbFd_{-1};
+    int usbInterface_{-1};
     std::atomic<int32_t> outRate_{0};
     std::atomic<int32_t> outFormatAtomic_{HRC_SAMPLE_F32};
 
@@ -241,6 +324,9 @@ private:
     PcmReceiptHasher decodeHash_;
     std::atomic<int64_t> boundaryFrame_{-1};   // ring frame where the queued window starts, or -1
     std::atomic<uint64_t> boundaryWindow_{0};
+    std::atomic<bool> boundaryContinues_{false};  // the window after the boundary is the same track (after a fade)
+    std::atomic<bool> boundaryMixes_{false};      // the window after the boundary is a crossfade
+    std::atomic<bool> mixing_{false};
     std::atomic<uint64_t> playingWindow_{0};   // set while the callback is stopped, then RT-owned
     std::atomic<uint64_t> playingTrackStart_{0};
     std::atomic<int64_t> playingRingStart_{0};
@@ -265,10 +351,42 @@ private:
     std::atomic<bool> playWhenReady_{false};
 
     // DSP
-    DSP::ParametricEq eq_;
+    std::array<DSP::ParametricEq, 2> eqSlots_;
+    std::array<DSP::DspChain, 2> dspSlots_;
+    std::atomic<uint32_t> activeDspSlot_{0};
+    DSP::ParametricEq::Band eqBands_[DSP::ParametricEq::kMaxBands]{};
+    int eqBandCount_{0};
+    double eqPreampDb_{0.0};
+    bool eqEnabled_{false};
+    DSP::DspSettings dspSettings_{};
     std::atomic<uint32_t> peqFlags_{HRC_STAGE_BUILT | HRC_STAGE_BYPASSED};
+    std::atomic<bool> dspActive_{false};
+    // Telemetry view of the chain, published by SetDsp (index = HRC_STAGE_*).
+    std::array<std::atomic<uint32_t>, HRC_STAGE_COUNT> stageFlags_{};
+    std::array<std::atomic<uint32_t>, HRC_STAGE_COUNT> stageLatency_{};
+    std::atomic<uint32_t> nonlinearOversample_{1};
+    uint64_t ditherState_{0x9E3779B97F4A7C15ull};
     std::array<float, kScratchFrames * kOutputChannels> floatScratch_{};
     std::array<uint8_t, kScratchFrames * 8 * kOutputChannels> byteScratch_{};
+
+    // Engine resampler (libsoxr)
+    SoxrResampler resampler_;
+    std::atomic<bool> resamplerActive_{false};
+    std::array<float, kScratchFrames * kOutputChannels> resampleInScratch_{};
+    std::array<float, kScratchFrames * 4 * kOutputChannels> resampleOutScratch_{};
+    std::array<float, kScratchFrames * 4 * kOutputChannels> resampleFifo_{};
+    size_t resampleFifoHead_{0};
+    size_t resampleFifoCount_{0};
+
+    char outDeviceName_[HRC_NAME_CHARS]{0};
+
+    // Lock-free output level metering (ITU-R BS.1770 true-peak, RMS, peak)
+    std::array<std::atomic<float>, HRC_MAX_CHANNELS> levelPeak_{};
+    std::array<std::atomic<float>, HRC_MAX_CHANNELS> levelTruePeak_{};
+    std::array<std::atomic<double>, HRC_MAX_CHANNELS> levelSumSq_{};
+    std::atomic<uint64_t> levelFrames_{0};
+    float tpHistory_[HRC_MAX_CHANNELS][12]{};
+    size_t tpHead_[HRC_MAX_CHANNELS]{0};
 
     // Telemetry rings (inline storage) and the consumer's merged view.
     RtRing rtRing_;

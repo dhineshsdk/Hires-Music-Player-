@@ -247,6 +247,19 @@ class UsbDeviceManagerBridge(
     }
 
     /**
+     * Unified hardware PEQ flashing router. Detects device HID protocol
+     * and flashes biquad parameters via HID Feature Reports.
+     */
+    fun flashHardwarePeq(bands: List<BiquadBand>): Boolean {
+        val current = _connectedDevice.value ?: return false
+        return when (current.profile.hidProtocol) {
+            HidDspProtocol.MOONDROP_FREEDSP_Q30 -> flashMoondropFreeDspHardware(bands)
+            HidDspProtocol.WALKPLAY_HEX_FRAME -> flashWalkPlayHardware(bands)
+            else -> flashMoondropFreeDspHardware(bands) || flashWalkPlayHardware(bands)
+        }
+    }
+
+    /**
      * Flashes hardware PEQ biquad filters to a connected Type-C DSP IEM (e.g. Moondrop FreeDSP)
      * using the Q30 fixed-point protocol matching UsbHidPeqController.hpp
      */

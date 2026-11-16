@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.net.Uri
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Handler
@@ -18,11 +20,14 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.SimpleBasePlayer.MediaItemData
 import androidx.media3.common.util.UnstableApi
 import com.audiophile.engine.model.DspRackState
 import com.audiophile.engine.model.FilterTopology
+import com.audiophile.engine.model.HrcConstants
+import com.audiophile.engine.model.HrcTelemetry
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,14 +56,26 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private var playWhenReady = false
     private var playbackState = Player.STATE_IDLE
     private var preparedIndex = -1
+    private var playbackFailure: PlaybackException? = null
     private var durationMs = 0L
     private var pausedByTransientFocusLoss = false
     private var seenTransitions = 0
     // Bumped whenever the open track changes, so a stale background open is dropped.
     private var openGeneration = 0
 
+    /** Currently active Google Drive byte source for in-flight seek cancellation. */
+    var currentDriveSource: com.audiophile.engine.library.source.DriveByteSource? = null
+
+    private var transitions = TransitionSettings()
+    private var queuedAllowFade = true   // what the queued track was handed to the engine with
+    private val _mixing = MutableStateFlow(false)
+    /** True while two tracks are being crossfaded: the audio is a mix, not the files' own samples. */
+    val mixing: StateFlow<Boolean> = _mixing.asStateFlow()
+
     private val router = BitPerfectRouter(audioManager)
     private var bitPerfectEnabled = true
+    // The EQ is changing samples, so the shared stream is opened in float (no requantizing on our side).
+    private var eqActive = false
     private val _route = MutableStateFlow(BitPerfectRouter.SHARED)
     /** Current output route: bit-perfect USB or the shared mixer. */
     val route: StateFlow<BitPerfectRouter.Route> = _route.asStateFlow()
@@ -72,6 +89,10 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private val _engineFormat = MutableStateFlow<NativeAudioEngine.Format?>(null)
     /** Format of the open track as the engine sees it (source and device rates). */
     val engineFormat: StateFlow<NativeAudioEngine.Format?> = _engineFormat.asStateFlow()
+
+    private val _telemetry = MutableStateFlow<HrcTelemetry?>(null)
+    /** Zero-copy real-time telemetry from hires_core engine (polled at 30 Hz). */
+    val telemetry: StateFlow<HrcTelemetry?> = _telemetry.asStateFlow()
 
     private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
         .setAudioAttributes(
@@ -93,13 +114,61 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     private val ticker = object : Runnable {
         override fun run() {
             if (preparedIndex >= 0) {
-                val transitions = engine.pollTransitions()
-                if (transitions > seenTransitions) onGaplessTransition(transitions)
+                // 1. Drain hrc_event_poll
+                var event = engine.hrcEventPoll()
+                while (event != null) {
+                    when (event.type) {
+                        HrcConstants.EVENT_OUTPUT_REOPENED -> {
+                            val newSampleRate = event.value.toInt()
+                            Log.i(TAG, "HRC_EVENT_OUTPUT_REOPENED: new rate $newSampleRate Hz")
+                            val route = router.routeFor(newSampleRate, engine.format.bitDepth, bitPerfectEnabled)
+                            val encoding = if (!route.bitPerfect && eqActive) AudioFormat.ENCODING_PCM_FLOAT else route.encoding
+                            engine.setOutputFormat(encoding, route.bitPerfect)
+                            _route.value = route
+                            _engineFormat.value = engine.format
+                        }
+                        HrcConstants.EVENT_OUTPUT_LOST -> {
+                            Log.w(TAG, "HRC_EVENT_OUTPUT_LOST: falling back to Output A")
+                            applyRoute()
+                        }
+                        HrcConstants.EVENT_CROSSFADE -> {
+                            _mixing.value = true
+                        }
+                        HrcConstants.EVENT_TRACK_STARTED -> {
+                            durationMs = engine.durationMs
+                            _engineFormat.value = engine.format
+                        }
+                        HrcConstants.EVENT_TRACK_ENDED -> {
+                            if (currentIndex + 1 < playlist.size) {
+                                onGaplessTransition(seenTransitions + 1)
+                            } else {
+                                onTrackEnded()
+                            }
+                        }
+                        HrcConstants.EVENT_RECEIPT_MISMATCH -> {
+                            Log.w(TAG, "HRC_EVENT_RECEIPT_MISMATCH at frame ${event.value}")
+                        }
+                    }
+                    event = engine.hrcEventPoll()
+                }
+
+                // 2. Poll transitions count
+                val changes = engine.pollTransitions()
+                if (changes > seenTransitions) onGaplessTransition(changes)
+
+                // 3. Read hrc_telemetry (30 Hz while playing)
+                val telem = engine.hrcTelemetryRead()
+                if (telem != null) {
+                    _telemetry.value = telem
+                }
             }
+            val mixingNow = preparedIndex >= 0 && engine.isMixing
+            if (_mixing.value != mixingNow) _mixing.value = mixingNow
             if (engine.state == NativeAudioEngine.State.ENDED && playbackState == Player.STATE_READY) {
                 onTrackEnded()
             }
-            mainHandler.postDelayed(this, TICK_MS)
+            val intervalMs = if (playWhenReady && playbackState == Player.STATE_READY) TICK_MS_PLAYING else TICK_MS_IDLE
+            mainHandler.postDelayed(this, intervalMs)
         }
     }
 
@@ -111,6 +180,8 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         )
         mainHandler.post(ticker)
         audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler)
+        // The service can start without the UI (headset button, Bluetooth): use the saved settings.
+        setTransitions(TransitionSettingsStore(context).load())
     }
 
     /** Turns Android 14 bit-perfect USB output on or off (the shared mixer is used when off). */
@@ -120,7 +191,33 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
     }
 
     /**
-     * Applies the DSP rack's parametric EQ in the engine. A preamp equal to the largest boost
+     * Applies how tracks hand over to each other. Takes effect for the queued track as well: it is
+     * handed to the engine again when the new settings change whether it may be faded into.
+     */
+    fun setTransitions(settings: TransitionSettings) {
+        transitions = settings
+        engine.setCrossfade(settings.crossfadeEnabled, settings.crossfadeMs, settings.curve)
+        if (preparedIndex >= 0 && allowFadeInto(currentIndex + 1) != queuedAllowFade) preloadNext()
+    }
+
+    /** Key that tells whether two items belong to one album; null when unknown. */
+    fun albumKeyOf(index: Int): String? = albumKey(playlist.getOrNull(index))
+
+    /** Album key of the track that is playing now. */
+    fun currentAlbumKey(): String? = albumKeyOf(currentIndex)
+
+    private fun albumKey(item: MediaItem?): String? {
+        val meta = item?.mediaMetadata ?: return null
+        val id = meta.extras?.getLong(EXTRA_ALBUM_ID, NO_ALBUM) ?: NO_ALBUM
+        if (id != NO_ALBUM) return "id:$id"
+        return meta.albumTitle?.toString()?.takeIf { it.isNotBlank() }?.let { "t:${it.lowercase()}" }
+    }
+
+    private fun allowFadeInto(nextIndex: Int): Boolean =
+        transitions.allowsFade(albumKeyOf(nextIndex - 1), albumKeyOf(nextIndex))
+
+    /**
+     * Applies the DSP rack in the engine: the parametric EQ and every other stage the engine runs (convolution is not built). A preamp equal to the largest boost
      * keeps the curve from clipping. Flat or bypassed leaves the stream bit-perfect.
      */
     fun setDsp(state: DspRackState) {
@@ -144,13 +241,20 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             state.evaluateTotalEqMagnitudeDb(hz.toFloat())
         }.coerceAtLeast(0.0)
         engine.setEq(enabled, -maxBoostDb, bands)
+        engine.setDsp(state.toEngineSettings())
+        val active = state.isAnyStageActive
+        if (active != eqActive) {
+            eqActive = active
+            applyRoute()
+        }
     }
 
     private fun applyRoute() {
         if (preparedIndex < 0) return
         val format = engine.format
         val route = router.routeFor(format.sampleRateHz, format.bitDepth, bitPerfectEnabled)
-        engine.setOutputFormat(route.encoding, route.bitPerfect)
+        val encoding = if (!route.bitPerfect && eqActive) AudioFormat.ENCODING_PCM_FLOAT else route.encoding
+        engine.setOutputFormat(encoding, route.bitPerfect)
         _route.value = route
         _engineFormat.value = engine.format
     }
@@ -191,6 +295,7 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             .setCurrentMediaItemIndex(if (items.isEmpty()) 0 else currentIndex.coerceIn(0, items.size - 1))
             .setPlayWhenReady(playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setPlaybackState(if (items.isEmpty()) Player.STATE_IDLE else playbackState)
+            .setPlayerError(playbackFailure)
             .setContentPositionMs { if (preparedIndex == currentIndex) engine.positionMs else 0L }
             .build()
     }
@@ -216,8 +321,54 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
 
     override fun handlePrepare(): ListenableFuture<*> {
         if (playlist.isEmpty()) return Futures.immediateVoidFuture()
+        playbackFailure = null
         playbackState = Player.STATE_BUFFERING
         return openCurrent(0)
+    }
+
+    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
+        syncQueueBoundary()
+        return applyQueueEdit(QueueEdits.remove(playlist.size, currentIndex, fromIndex, toIndex))
+    }
+
+    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> {
+        syncQueueBoundary()
+        return applyQueueEdit(QueueEdits.move(playlist.size, currentIndex, fromIndex, toIndex, newIndex))
+    }
+
+    private fun syncQueueBoundary() {
+        if (preparedIndex >= 0) {
+            val transitions = engine.pollTransitions()
+            if (transitions > seenTransitions) onGaplessTransition(transitions)
+        }
+    }
+
+    private fun applyQueueEdit(edit: QueueEdit): ListenableFuture<*> {
+        val hadPreparedTrack = preparedIndex >= 0
+        val oldPlaylist = playlist
+        val oldMetadata = metadata
+        // Invalidates any descriptor currently being opened for the previous next item.
+        openGeneration++
+        engine.clearNext()
+        playlist = edit.order.map { oldPlaylist[it] }
+        metadata = edit.order.map { oldMetadata.getOrElse(it) { oldPlaylist[it].mediaMetadata } }
+        currentIndex = edit.currentIndex
+        if (playlist.isEmpty()) {
+            engine.stop()
+            preparedIndex = -1
+            durationMs = 0L
+            playWhenReady = false
+            playbackState = Player.STATE_IDLE
+            audioManager.abandonAudioFocusRequest(focusRequest)
+        } else if (edit.currentRemoved || !hadPreparedTrack) {
+            preparedIndex = -1
+            return openCurrent(0L)
+        } else {
+            // Reordering/removing another item must not reopen the playing stream.
+            preparedIndex = currentIndex
+            preloadNext()
+        }
+        return Futures.immediateVoidFuture()
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
@@ -243,10 +394,12 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         val target = mediaItemIndex.coerceIn(0, (playlist.size - 1).coerceAtLeast(0))
         val position = if (positionMs == C.TIME_UNSET) 0L else positionMs
         return if (target == currentIndex && preparedIndex == currentIndex) {
+            currentDriveSource?.abortInFlightRead()
             engine.seekTo(position)
             if (playbackState == Player.STATE_ENDED) playbackState = Player.STATE_READY
             Futures.immediateVoidFuture()
         } else {
+            currentDriveSource?.abortInFlightRead()
             currentIndex = target
             openCurrent(position)
         }
@@ -272,20 +425,36 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         return Futures.immediateVoidFuture()
     }
 
+    private fun openFd(uri: Uri): Int? = try {
+        if (uri.scheme == "file") {
+            uri.path?.let { p ->
+                android.os.ParcelFileDescriptor.open(
+                    java.io.File(p),
+                    android.os.ParcelFileDescriptor.MODE_READ_ONLY
+                )?.detachFd()
+            }
+        } else {
+            context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Cannot open $uri", e)
+        null
+    }
+
     private fun openCurrent(startPositionMs: Long): ListenableFuture<*> {
         val item = playlist.getOrNull(currentIndex) ?: return Futures.immediateVoidFuture()
         val uri = item.localConfiguration?.uri ?: return Futures.immediateVoidFuture()
         val index = currentIndex
         val generation = ++openGeneration
+        playbackFailure = null
+        currentDriveSource?.abortInFlightRead()
+        if (uri.scheme != "drive" && !uri.toString().contains("drive.google.com") && !uri.toString().contains("googleapis.com/drive")) {
+            currentDriveSource = null
+        }
         playbackState = Player.STATE_BUFFERING
         val future = com.google.common.util.concurrent.SettableFuture.create<Unit>()
         ioExecutor.execute {
-            val fd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            } catch (e: Exception) {
-                Log.e(TAG, "Cannot open $uri", e)
-                null
-            }
+            val fd = openFd(uri)
             mainHandler.post {
                 if (index != currentIndex || generation != openGeneration) {
                     // The user moved on while this file was opening.
@@ -305,6 +474,12 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
                     preloadNext()
                 } else {
                     Log.e(TAG, "Engine could not open $uri")
+                    playbackFailure = PlaybackException(
+                        if (fd == null) "This file could not be opened. Check its storage access."
+                        else "This file could not be decoded. Check that this build includes its decoder.",
+                        null,
+                        if (fd == null) PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND else PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    )
                     preparedIndex = -1
                     playbackState = Player.STATE_IDLE
                 }
@@ -313,6 +488,42 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
             }
         }
         return future
+    }
+
+    /** Smart Album Gapless: checks if two tracks have identical non-empty album and artist. */
+    fun isSameAlbum(firstIndex: Int, secondIndex: Int): Boolean {
+        val first = playlist.getOrNull(firstIndex)?.mediaMetadata ?: return false
+        val second = playlist.getOrNull(secondIndex)?.mediaMetadata ?: return false
+        val firstAlbum = first.albumTitle?.toString()?.trim().orEmpty()
+        val secondAlbum = second.albumTitle?.toString()?.trim().orEmpty()
+        if (firstAlbum.isBlank() || firstAlbum != secondAlbum) return false
+        val firstArtist = (first.albumArtist ?: first.artist)?.toString()?.trim().orEmpty()
+        val secondArtist = (second.albumArtist ?: second.artist)?.toString()?.trim().orEmpty()
+        return firstArtist.isNotBlank() && firstArtist.equals(secondArtist, ignoreCase = true)
+    }
+
+    /** Output B: play straight to a USB DAC through usbfs. Returns 0 on success. */
+    fun selectUsbOutput(fd: Int, usbInterface: Int = -1, sampleRate: Int = 0): Int {
+        val res = engine.selectUsbOutput(fd, usbInterface, sampleRate)
+        if (res == 0) {
+            val format = engine.format
+            _route.value = BitPerfectRouter.Route(
+                encoding = format.outputEncoding,
+                bitPerfect = true,
+                deviceName = "Direct Linux USBFS (Output B)",
+                isConfirmedBitPerfect = true
+            )
+            _engineFormat.value = format
+        }
+        return res
+    }
+
+    fun loadImpulseFd(fd: Int, wetMix: Float = 1.0f, gainDb: Float = 0.0f): Int {
+        return engine.loadImpulseFd(fd, wetMix, gainDb)
+    }
+
+    fun clearImpulse() {
+        engine.clearImpulse()
     }
 
     /** Opens the following item in the background and hands it to the engine for a gapless change. */
@@ -325,32 +536,39 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         }
         val generation = openGeneration
         ioExecutor.execute {
-            val fd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            } catch (e: Exception) {
-                Log.w(TAG, "Cannot preload $uri", e)
-                null
-            }
+            val fd = openFd(uri)
             mainHandler.post {
                 if (fd == null) return@post
                 if (generation != openGeneration || nextIndex != currentIndex + 1) {
                     android.os.ParcelFileDescriptor.adoptFd(fd).close()
                     return@post
                 }
-                // A different sample rate is not queued by the engine; that track opens normally at the end.
-                if (!engine.setNext(fd)) Log.w(TAG, "Engine could not preload $uri")
+                // Smart Album Gapless: if consecutive tracks belong to the same album, enforce bit-perfect gapless
+                val sameAlbum = isSameAlbum(currentIndex, nextIndex)
+                val allowFade = if (sameAlbum) false else allowFadeInto(nextIndex)
+                queuedAllowFade = allowFade
+                if (!engine.setNext(fd, allowCrossfade = allowFade, noCrossfade = sameAlbum)) {
+                    Log.w(TAG, "Engine could not preload $uri")
+                }
             }
         }
     }
 
-    /** The engine moved into the queued track without a gap. */
-    private fun onGaplessTransition(transitions: Int) {
-        seenTransitions = transitions
+    /** The engine moved into the queued track, without a gap or with a crossfade. */
+    private fun onGaplessTransition(count: Int) {
+        val previous = _engineFormat.value
+        seenTransitions = count
         currentIndex += 1
         preparedIndex = currentIndex
         openGeneration++
         durationMs = engine.durationMs
-        _engineFormat.value = engine.format
+        val format = engine.format
+        _engineFormat.value = format
+        // On the shared route the engine reopens itself for a new format; pick the route again so
+        // a DAC with a bit-perfect mixer at the new rate gets it.
+        if (previous != null && (previous.sampleRateHz != format.sampleRateHz || previous.bitDepth != format.bitDepth)) {
+            applyRoute()
+        }
         preloadNext()
         invalidateState()
     }
@@ -410,9 +628,13 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
-            val fallbackTitle = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')
+            // Tag, then the title the library already knows, then the file name. A content:// URI's last
+            // segment is the MediaStore id, never a name.
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?: item.mediaMetadata.title?.toString()
+                ?: displayName(uri)
             MediaMetadata.Builder()
-                .setTitle(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fallbackTitle)
+                .setTitle(title)
                 .setArtist(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST))
                 .setAlbumTitle(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM))
                 .setArtworkData(retriever.embeddedPicture, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
@@ -424,8 +646,22 @@ class NativeEnginePlayer(private val context: Context) : SimpleBasePlayer(Looper
         }
     }
 
+    private fun displayName(uri: Uri): String? {
+        val raw = if (uri.scheme == "content") {
+            runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }.getOrNull()
+        } else {
+            uri.lastPathSegment
+        }
+        return raw?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotEmpty() }
+    }
+
     private companion object {
         const val TAG = "NativeEnginePlayer"
-        const val TICK_MS = 250L
+        const val TICK_MS_PLAYING = 33L // ~30 Hz real-time telemetry polling
+        const val TICK_MS_IDLE = 250L
+        const val NO_ALBUM = -1L
     }
 }

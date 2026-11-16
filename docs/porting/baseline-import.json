@@ -1,0 +1,951 @@
+{
+  "source": "D:\\MusicPlayer-Projects\\Music-Player",
+  "note": "Non-destructive snapshot import; source tree unchanged; excludes local settings/builds/signing secrets.",
+  "files": [
+    {
+      "path": "src/build.gradle.kts",
+      "previous_sha256": "9e8714cbc683a9e125af623c124e311ecafe9a7abd09c6097af7813f8af5957f",
+      "imported_sha256": "4789059756721dd20a0eafb015ed6d84e93831f1408758d081e5b9ee05f5314c"
+    },
+    {
+      "path": "src/settings.gradle.kts",
+      "previous_sha256": "6733e2c9ef28d1f36f236fbba0ef4e4da4fe9074d9916f8810287f9fa786156a",
+      "imported_sha256": "45d061f7a5ac6733fb7c4affeb0d69e95feec38c221dadb4dfee846e2ec3429f"
+    },
+    {
+      "path": "src/app/build.gradle.kts",
+      "previous_sha256": "deee4f2db8abb08cdf4fea8597ae87f5e49ac52ede5fd7f80f0928bc2bc225e0",
+      "imported_sha256": "555475f872419f182903cd556c1b534854ac190e6ff5bc3fc3f4fb02198adc5d"
+    },
+    {
+      "path": "src/app/debug.keystore",
+      "previous_sha256": null,
+      "imported_sha256": "2297dbbff14c6e7ebd02ca36a3f8ae503b3d1c5adc0c4fbce16a56ad9be01311"
+    },
+    {
+      "path": "src/app/src/main/AndroidManifest.xml",
+      "previous_sha256": "7c6bfa93b6bbd83ae0976713be12901e7140d8f05cbbc0d858e04d78d9fff43e",
+      "imported_sha256": "1035233646b9bc069a75c8cf2df7e9fcaf3e1efbeb148c2ad2660b5889c4b269"
+    },
+    {
+      "path": "src/app/src/main/cpp/CMakeLists.txt",
+      "previous_sha256": "4b2b0b8c11f902f272b82ac897043b04e6621fa4971045476d30f11795bc9656",
+      "imported_sha256": "880d91e7532a24d6514db29c234a1918d881ac385020d99de2aec0fb020c7ec3"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/AudioOutput.hpp",
+      "previous_sha256": "508cabf9da084c24df8a320c5f75d59f2d03ad4bf2ed5968dd6089afa247ffc5",
+      "imported_sha256": "4ea90c96550161df08530e81e8a99751fd5b2c6ce612737b2dd9244f6f6d44b9"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/CrossfadeMixer.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "96f3c78e286a8d9a32cf577fbeeefc7106ee83e6f6a4b0a282895608ad94cb76"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/EngineTelemetry.hpp",
+      "previous_sha256": "da7a10572df12bb50fa9d36b8e32f93e8b016afe2785d5ab6f11d2dbd3742916",
+      "imported_sha256": "ad080d93652914fc890936167e325893f2996140fb4b48a70029fd4d443328b2"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/ForensicStreamAuditor.hpp",
+      "previous_sha256": "6c6e8179d87baecee3494787f36ca6b03efb30f78002bcb51dcf96a91a2a8f2a",
+      "imported_sha256": "4d8494d0bf8c7bf4a9e4a524b060912408e505ef299a3c78bcbbacf58e6e9329"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/HiresCore.cpp",
+      "previous_sha256": "642a4657adcf92fba025e3303e15ca0ad58ba689e442dbe0014b52f688f32c3f",
+      "imported_sha256": "75424e8b128d8c1d782a1cc99a08f94f521b7a978104083b427d0467b90b6e00"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/HiresCoreInternal.hpp",
+      "previous_sha256": "62b79cff82c5cb8b46d95ae3ad6a66c1f3d5b46d3ae6af783cc3bead8c6e61c4",
+      "imported_sha256": "96ec0c1053284651e3788ad5eecd34ef81890bc1af20baafb482f445326de133"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/hires_core.h",
+      "previous_sha256": "c6160f1dcaf04af2f731e02afef5cbfe14408879ec0d68f02f9e1a7edbff7598",
+      "imported_sha256": "6226caa7e45b0c6b76cc13fa6f6347e0722a48be9fb9d853ff7fd18a995e38ec"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/hires_core_abi.c",
+      "previous_sha256": "d0199cc8403b267ac24a4da6044d609f382c7e36121e9b61ef62e62df681c0d2",
+      "imported_sha256": "6ffbea2c7b76b9a64e81701eb1e40e6dbe63f1a2c203ffbe03bd6653793af8a1"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/OboeOutput.cpp",
+      "previous_sha256": "7a4bd04c7a214b9f1965b52c37ba0d41eb07faddf18c26c32fdedec473ede994",
+      "imported_sha256": "02e315dc380cf8630dfe1f94b044439fdf4145530b1539767ef6efb725070281"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/PcmEncoding.hpp",
+      "previous_sha256": "4aa1db0a5485838b010239f3c3d5ae34d6bf4ff3807da9076a4904e027ef9bfb",
+      "imported_sha256": "766290ff41aefa0dfbc55dd7c34fcf0d315face48fc0d80cb55d8cb0e0e8906c"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/PlaybackEngine.cpp",
+      "previous_sha256": "6e6d3a4e3fd5650a3be06bc97e23e9acb1fd43607c9e8e1b917add693f77c241",
+      "imported_sha256": "545d874522d925900c38c241fefff790fc3bb31b76d1971769bd61992ca44847"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/PlaybackEngine.hpp",
+      "previous_sha256": "26266558a6f1699721406be7ac667bff9e047e5295de64af0204dc05d3e38eed",
+      "imported_sha256": "b6c51750d2fae304d91ae2439bb5134615ee89d901de6a29109ba06cb0c833a8"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/SoxrResampler.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "5642d75cea857c283fa2d84cab57ba7f90c69d11cb31b2e6ccd41e0a70359916"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/UsbExclusiveOutput.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "b3d77738c3ed783ff5694d4042bf2446d9d5b462377dd8b937f8d4c54fc48ced"
+    },
+    {
+      "path": "src/app/src/main/cpp/core/UsbExclusiveOutput.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "3831d82626b8d44787ee8253e83c443d7f191f1316b76586a7a1db7c0986f730"
+    },
+    {
+      "path": "src/app/src/main/cpp/decoders/FfmpegDecoder.cpp",
+      "previous_sha256": "d8adf6cb69320e54f12b4a07b4c152f2c19a4c24f75bb6af67adec5ea50212ea",
+      "imported_sha256": "2b11e77d0432baa3da8f24bdc4cb22f57c639ccf811e0509031ae1c9dbbaed98"
+    },
+    {
+      "path": "src/app/src/main/cpp/decoders/FfmpegDecoder.hpp",
+      "previous_sha256": "b5194223d4de6d16b7de0ca8fa43a6e5e49403a4b412888e2b745c679e06cda9",
+      "imported_sha256": "d7fa3f5948a7938ace1efd8a9cc17146288d87e8a9f83e3c11a4df363e03289d"
+    },
+    {
+      "path": "src/app/src/main/cpp/decoders/FlacDecoder.cpp",
+      "previous_sha256": "0f40ade9ee71f1beaec74d29a5014e8788cf42c86245221ad8931688db898ed3",
+      "imported_sha256": "059cae2cee74828bf7f94c1964eabf49c4f490caaf1e2590f0f5b9dae97774fa"
+    },
+    {
+      "path": "src/app/src/main/cpp/decoders/GaplessInfo.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "7d4932058f3f227df231c310eaf399d4c24434bb19e9291061c9e81a6f247fb3"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/LinuxUsbfsIo.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "a88824d4b166c0a5098cb9f3f84359a4e1109ff295e118deba49f6f83aef45d8"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UacControl.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "877d430d448233396ab847234ebcfb3070fe95e3377fe7067798a30831ddc765"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UacDescriptorParser.hpp",
+      "previous_sha256": "8188eb6869056cf59572ce5f9c180063d8629beb91c721fce1d570609970891e",
+      "imported_sha256": "e3610fd4d55d9c80d06b3893c0fffbe7f4486cdc365ff72a035edd746bd98fa1"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UacStreamSelector.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "9e2f74aa79a71653ebb338138d04600b5bb03db50a78e21fa356d2bf0b3007b9"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UsbHidPeqController.hpp",
+      "previous_sha256": "1b30c473994d5d965b53d4cdc06dee83967dca0a9394b6f01719835a1dd4f7c1",
+      "imported_sha256": "6be095d6976dfc3bdd0b97d152e3107ff78ba9db72958c72327da80c2b21558d"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UsbIo.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "a218cc7a3482980435cda6be33096b1cd69ab0425d1928573a5b2e498da1ba2f"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UsbIsoPump.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "81424a1b2a25a429579ee3ff7bc63313202e7c2ab71a970f5f3349a7a75d1a5b"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UsbIsoPump.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "d7402c9c3e68fa61e51419057691c9ee183744d282c31f7d93c92a637e22312e"
+    },
+    {
+      "path": "src/app/src/main/cpp/drivers/UsbPacer.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "7c17e6fee2301190eda52c47b286f07bf531a7de2d04ba08156ef24261880309"
+    },
+    {
+      "path": "src/app/src/main/cpp/dsp/DspChain.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "270a4f8608f5ab88ee2cdf35af3ece3f69114ec4075b79738d26664dea7fbf83"
+    },
+    {
+      "path": "src/app/src/main/cpp/dsp/ParametricEq.hpp",
+      "previous_sha256": "c9ff428c1d503b1e22f5d1fafdf85571e047719c588356d6bcad847e3b06759a",
+      "imported_sha256": "f315fbf12caef95e82e472e7f0fd1e2ed555c98f0e31691d99bbd5104d190308"
+    },
+    {
+      "path": "src/app/src/main/cpp/dsp/VulkanConvolver.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "81f8726f20bef09cb9cbfa8f82dbea8fc19f5148a0ad189e91a292584beacb91"
+    },
+    {
+      "path": "src/app/src/main/cpp/dsp/VulkanConvolver.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "fa9d415c48997db74cd2b8c24f27b80d7d373c57008f345ef86a2d2af8706281"
+    },
+    {
+      "path": "src/app/src/main/cpp/jni/PlaybackEngineJni.cpp",
+      "previous_sha256": "6117c3b3b42f9c4f1685b44ea799fd3207197486c85e00b8c3c3b67fa9c914f1",
+      "imported_sha256": "0e1989175e059fc16635306a2c5cb99226df45cb7f51a9e0fec399bd76f5930c"
+    },
+    {
+      "path": "src/app/src/main/cpp/shaders/UpolsShaderBytecode.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "2a0e357463bb79222e0e71c51743aad9a0357882305ea0aff1d5e62adba0d7cd"
+    },
+    {
+      "path": "src/app/src/main/cpp/shaders/upols_convolver.comp",
+      "previous_sha256": "87321599a07f5e048b87774254e31c11ec97c40fd2f1658054247f8d91aba41d",
+      "imported_sha256": "b50aac7ef69bb7b72016d68b88fa494dede5d1b9d1a6b1f4ea7a503074a61bfb"
+    },
+    {
+      "path": "src/app/src/main/cpp/shaders/upols_convolver.spv",
+      "previous_sha256": null,
+      "imported_sha256": "960e3c6b520a5881a0c11ef4c8d3c43c788bbffaea3fcb5127208da38583af3e"
+    },
+    {
+      "path": "src/app/src/main/cpp/shaders/upols_convolver_spv.h",
+      "previous_sha256": null,
+      "imported_sha256": "3c18d6395a7b4938b85eae86c5222dfdca1bd76f729742bef4e9056b5a93cc36"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/ffmpeg/build_android.sh",
+      "previous_sha256": "a54f2ba9245e7b95229d9c6460761ccd6b60267a43325f81cacb4bc8582dcb80",
+      "imported_sha256": "109ab45906267ee52b361d94ad01ab00e855d5a80547698b00dc638504db5543"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/aliases.h",
+      "previous_sha256": null,
+      "imported_sha256": "2a3d64e5e2fae4661857358ba45e50612b89c90ef739bc165aebb55b58431cb6"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/avfft32.c",
+      "previous_sha256": null,
+      "imported_sha256": "eaeeadb2d4e7d73d249eb5d1bd796cb20b9def92a9f560d0e6391f0111201c75"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/avfft32s.c",
+      "previous_sha256": null,
+      "imported_sha256": "72d90f9c2beecb8b2577c022561e417d28bc167d300eb92656922b9c04c0093b"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/ccrw2.h",
+      "previous_sha256": null,
+      "imported_sha256": "9a6101251f23622122474dffa46a44d182455a2a8dde940b4112fd1a14f43686"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/CMakeLists.txt",
+      "previous_sha256": null,
+      "imported_sha256": "2326913f14da5c7bb1384d88b8b9718c3c76801dc4b991c5850854a15ee4fa19"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr-core.c",
+      "previous_sha256": null,
+      "imported_sha256": "6a251676792b84a8227dfae97719432bc894cad6c09e58ba555b7d04f811d131"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr.c",
+      "previous_sha256": null,
+      "imported_sha256": "f53c14ef88e91ace5d8b456685e8cb82630000d24032bfec2d9eac85994db2bf"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr.h",
+      "previous_sha256": null,
+      "imported_sha256": "83cc06d1c0e532cb2b0b5aad69699a2ff2a0b084db57ab7aa71a579ab9926ad5"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr32.c",
+      "previous_sha256": null,
+      "imported_sha256": "0da6aba68ad4bdd27c22b46684fdb603875f355440ef3480ec4b07a308af4a64"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr32s.c",
+      "previous_sha256": null,
+      "imported_sha256": "13b297bf433aa8e97d7bfd0077c6c90f451f313c5dd39c29c1415447b99aa60d"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr64.c",
+      "previous_sha256": null,
+      "imported_sha256": "03d6268b04ac98e2d054422c49531ea679e705facb600b47da86f2ae2c1abe6d"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/cr64s.c",
+      "previous_sha256": null,
+      "imported_sha256": "4d81360758a8b1dd368da101a662e939d6b985c3e4dd23234bf45f035508f201"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/data-io.c",
+      "previous_sha256": null,
+      "imported_sha256": "9f7b46d1023b254e5904d219e82c6ec19e92bce088dee46643a4ebdc8089b769"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/data-io.h",
+      "previous_sha256": null,
+      "imported_sha256": "8b562a658d8552478dd8d8c455bbabe916670993faf948d568ecf69ea9f5a595"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/dbesi0.c",
+      "previous_sha256": null,
+      "imported_sha256": "136eda5dc5a99c0f08be2e6bc39491b499f4aeaf1dce18fd68277bc439b80aba"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/dev32s.h",
+      "previous_sha256": null,
+      "imported_sha256": "ab29c3513ecf24e161695ae9b4102c7440708344270bd8f8cc04de0f5314c0b6"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/dev64s.h",
+      "previous_sha256": null,
+      "imported_sha256": "fb40ddb8c7539708ee38f164b6566f6c9eecd802f6853d1a77db6d6c62bae3ef"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g.c",
+      "previous_sha256": null,
+      "imported_sha256": "ac4895f04e5608eb3d03439658fb15dd4ae7b6457a49f8b9deaf4d7c33b9c6c2"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g.h",
+      "previous_sha256": null,
+      "imported_sha256": "834b259ede895e7b22e653b2b605324ab3b9fecd228440bba611dcee04de7d42"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g32.c",
+      "previous_sha256": null,
+      "imported_sha256": "ddaab955523cfb98e7e13fa8b6eab6adb33baafd33f1b65162cca8af1db5a4d2"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g32s.c",
+      "previous_sha256": null,
+      "imported_sha256": "45c9d5d15962be8dd7074c32dc98cb96316c90aa77f86df63948376bf17dd857"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g64.c",
+      "previous_sha256": null,
+      "imported_sha256": "b19c73b8df662ae888ed1a06be0e202268dfc3e2e75fd4da1753227e8f970743"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fft4g_cache.h",
+      "previous_sha256": null,
+      "imported_sha256": "601eed2714d82b0b6e4dd105e0877d824be75561b6b703633e1d89fef1fb1d78"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/fifo.h",
+      "previous_sha256": null,
+      "imported_sha256": "537fda8bf4f3f37156388541d9ffbd05c0bd41d5c91f7ef44c5563977fd07e22"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/filter.c",
+      "previous_sha256": null,
+      "imported_sha256": "ce41869d4dba124874c6d4746ec7df15586a56408e62ca67269f7d59c4121c58"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/filter.h",
+      "previous_sha256": null,
+      "imported_sha256": "4e0836f7faaa23db1561677e189d70990d10f23061f92aaaa9312dee895bc0af"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/half-coefs.h",
+      "previous_sha256": null,
+      "imported_sha256": "5252788cbcea40a79ab9ea254ccd736a7ae3a9eeec0ca1237b810a74dbbf9092"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/half-fir.h",
+      "previous_sha256": null,
+      "imported_sha256": "b999843e0a5cf333d2d267e0399124fc25d93f40fd771bf0cbbaaf66ec2cf638"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/internal.h",
+      "previous_sha256": null,
+      "imported_sha256": "11c2bc7181acaaf10fa1465a56ad62b9bcb79405e639590d1402eab020788cfb"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/LICENCE",
+      "previous_sha256": null,
+      "imported_sha256": "73b946c198ad27fc2ae7bea2de6ec6d1b6c0733340d1759a450150271347e5af"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/math-wrap.h",
+      "previous_sha256": null,
+      "imported_sha256": "5c9272cc8b7cca7de4b79254591d1d64c3d900fc2359e312310fe31450cbe9fd"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft-avx.h",
+      "previous_sha256": null,
+      "imported_sha256": "8988f42f5ffc24e9d0422d64db07e4636674ab2254aff75e8e65e071eb980fe8"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft-wrap.c",
+      "previous_sha256": null,
+      "imported_sha256": "a9bcb9ea8ff9e2e1291105b4325ec8609f2b85093afdae3f2c13ede099383983"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft.c",
+      "previous_sha256": null,
+      "imported_sha256": "a28126fd3fc450810d41abf3c3610e174d960cc6afaaefa3b57a878e5ece1bca"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft.h",
+      "previous_sha256": null,
+      "imported_sha256": "c1c98c841dfbce57deef8fdc9a0f137f136a0c97ba1d4397dc4b567a7aff0c18"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft32.c",
+      "previous_sha256": null,
+      "imported_sha256": "119e99137eddc69ddd174f4a02a60c8f75e91402999dd8da5a864f0b2c270116"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft32s.c",
+      "previous_sha256": null,
+      "imported_sha256": "24a98d30207d0c82fdcfd46776430ac2460d353f222486868ec8dbe81283440c"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/pffft64s.c",
+      "previous_sha256": null,
+      "imported_sha256": "6f4d10c39f6cb700464c84bc199a2353be8c19d15dac3667d5fbb59db11e893a"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/poly-fir.h",
+      "previous_sha256": null,
+      "imported_sha256": "9a78ebdcbf5ff9a42d92ec944dbf7c32f0a80a3bfe0683ff2ef6b24b4803c20b"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/poly-fir0.h",
+      "previous_sha256": null,
+      "imported_sha256": "73b22fa1c1c89e524d3691f9d4bd445c189ae94ab8d87dfe4523659fc1be5214"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/rdft.h",
+      "previous_sha256": null,
+      "imported_sha256": "a3286fca8fd58cee896f94a2967ba694c5734cd5be069ad1f82660790a77afc1"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/rdft_t.h",
+      "previous_sha256": null,
+      "imported_sha256": "758fcae656bc8a2ed4c9fc48dd2438f06d560da03be117b18ea2af9cd9bf5d24"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/rint-clip.h",
+      "previous_sha256": null,
+      "imported_sha256": "0c41b48416f4a6a96a1c42f119956530a3714ad049076603452128719b693db2"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/rint.h",
+      "previous_sha256": null,
+      "imported_sha256": "d1a7d918491253dffd71c64f8dfbf2dbd89800052348c8adbc612bfd37608487"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/samplerate.h",
+      "previous_sha256": null,
+      "imported_sha256": "f7e066c4effdb6267df943065e4c37fede44c66f03b9d26ed7cc7c5cf203aae3"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr-config.h",
+      "previous_sha256": null,
+      "imported_sha256": "7c6f95b6620811bc64e7fbdead103dc3f4c922477a34782e53dbd9bb1bcce020"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr-lsr.c",
+      "previous_sha256": null,
+      "imported_sha256": "6531ad0326d32de8cd6b2da73a4ae457e63179d9605c2f44ee0e95047ed03ea4"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr-lsr.h",
+      "previous_sha256": null,
+      "imported_sha256": "579bf99f0bab50d57f3737bc468a5d9178cef8a56809e5bf39c8f87313b2bf8f"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr-lsr.pc.in",
+      "previous_sha256": null,
+      "imported_sha256": "463a750ef4c15f7bbd66e6cd470bb1feda734faabab5d30c8d6a179eec37a5fc"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr.c",
+      "previous_sha256": null,
+      "imported_sha256": "02223e35632364f4d58d4b8598d0c74e63c46331a422be48f3d72928743817d2"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr.h",
+      "previous_sha256": null,
+      "imported_sha256": "426d0617738c00c3bfe020c724ba2735ca2c844f8f7d9bf9443ed31efa842685"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/soxr.pc.in",
+      "previous_sha256": null,
+      "imported_sha256": "054dc3a3bbb2b1dd4c22718a0fd6e514738e1e9cbf44cf71e0e7e03a2d35e712"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/std-types.h",
+      "previous_sha256": null,
+      "imported_sha256": "c724a88f74fc4dae972bd12ac4e04923d76a1b2791dca299ad57cc480e698d1a"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/util-simd.c",
+      "previous_sha256": null,
+      "imported_sha256": "dd8a29469b6dfe7a3c020cb77674d6dd8506a54a4240caec9a42c6563a2a1032"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/util32s.c",
+      "previous_sha256": null,
+      "imported_sha256": "45f6e1b958e6ad8e7dcb0a76f38461b24b10cecde00426551f33ee4d883a217c"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/util32s.h",
+      "previous_sha256": null,
+      "imported_sha256": "3180675e2397180e5d258f244b18a234b44728727e7d37bbe84d77319e47c4bb"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/util64s.c",
+      "previous_sha256": null,
+      "imported_sha256": "d4262a8062bfe86f24f0583c306726ce7c6b34b284aa0d945750f2d298c5665e"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/util64s.h",
+      "previous_sha256": null,
+      "imported_sha256": "b97741c710d7b676f111b5ea5977e699efba2096e58176c7931d80b3e61e2741"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/vr-coefs.c",
+      "previous_sha256": null,
+      "imported_sha256": "565c8f6c7d86fcdfeffc5ec99d879c6b6aafdddc0f0420ba0a806bc4d12a6da7"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/vr-coefs.h",
+      "previous_sha256": null,
+      "imported_sha256": "c2be3989627bc1f5521a228343c4d378a00fe5dd5d7ded879aa3d4517ecbe27f"
+    },
+    {
+      "path": "src/app/src/main/cpp/third_party/soxr/vr32.c",
+      "previous_sha256": null,
+      "imported_sha256": "16be927c8b6192d985bbfd87cfa75baf6a6a34abfb89684cea5f5e4fb98bfebe"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/MainActivity.kt",
+      "previous_sha256": "b7c15aa75688861d1721fd3a768306fe060216c336cb6756bf869a55bb9a28a6",
+      "imported_sha256": "0b4e2d9248c4509098bc3170b095af1506d0e5b66dd4cf540068e97e5067a9d3"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/hardware/HardwareProfileDatabase.kt",
+      "previous_sha256": "3ef6e8531c6ace231f86bea18fb982539b4179db018a861c5750a6257ade94d7",
+      "imported_sha256": "8778de04c5ef7b9c509cb9806977f23ba06e7ffaa20680c49950149660f6ffcc"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/hardware/UsbDeviceManagerBridge.kt",
+      "previous_sha256": "1cb9e537eef1eb018bf63c4ec9ae13de35c8ddecb9bfe8b9ffe431d6eace9aaa",
+      "imported_sha256": "56fb276f3fe4db93a7eb20a835abd5c92890a0d41ba80f4facf7bb04d6a8c83d"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/hardware/UsbDeviceProfile.kt",
+      "previous_sha256": "b8a14b40515d330da55d21a965f0ede52b30d0635baf5a38a54c9665e5955e98",
+      "imported_sha256": "b37a7d49ca3311bb6549b51b31c6d2f6f6d8a95abacc66dd531b6b894c23b16e"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/LibraryScreen.kt",
+      "previous_sha256": "2f9849e75aa29929d8c6e600d077126c43a625f7f9653ae9c811afa9f67cb19d",
+      "imported_sha256": "6810f55ca2b93cac8947d4637ac253df3ca1e2dd77b1051ad4c27096e1883b3e"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/Mp4Duration.kt",
+      "previous_sha256": null,
+      "imported_sha256": "297456ae9dcd3b6dacaf51bc601f02669625f3c25c08153e88910786e982c5b5"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/MusicLibrary.kt",
+      "previous_sha256": "5cc8778d8f91614bd43e720d891cf4702af54a5f93396c65dc3810c0e43e4a8c",
+      "imported_sha256": "b0e430a91af8043470577530c30fbdac4117e7873f7f235a8ddf13b82c7e2513"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/model/AudioEngineModels.kt",
+      "previous_sha256": "cdbf80541e39198d614d0d4b0e7e4369846c15ad4ff8321531fd38e88e985cf0",
+      "imported_sha256": "f4b015fa51fff9f5586519a6068c77675d0beaa8b49e54fd1922ae19501800d2"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/model/DspRackState.kt",
+      "previous_sha256": "d32f33861027d76d99768a9f09eb8e158cf9a6007c0bceb4b6a499e0f4dad80a",
+      "imported_sha256": "0eada905214e6226b565b1528b806e0b156eae8ac8b34881085cf9ff9fc72d37"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/model/HrcTelemetry.kt",
+      "previous_sha256": null,
+      "imported_sha256": "24af32c766efa33f4c08027d0c26b6340c3623da407011b952938bfd6d51d1bb"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/model/QueueItem.kt",
+      "previous_sha256": null,
+      "imported_sha256": "ca14f2be41e9489649705fbf5fac4ebd347b13cf699971a53d86d3e4017ee306"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/model/SignalPathState.kt",
+      "previous_sha256": "94aa8dd938780cdab4a12c5dd6eb946a7c600b481e8ba7814a65ca3d9cc2fdc6",
+      "imported_sha256": "60fdc35f99b5c301b27c9ec516bc009fa9dc0f7f68500d394ce8ce8dc6f99835"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/playback/BitPerfectRouter.kt",
+      "previous_sha256": "8987f95c3c02b468771424fd36d12902b1e7c78c49313ea4aa9b1dd456c6adf1",
+      "imported_sha256": "8ee8151c292d20fd88d06b48dafb72ea7c81b98e45ab72e820179670a9e413e6"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/playback/DspSettings.kt",
+      "previous_sha256": null,
+      "imported_sha256": "fdb5688118c3f03e0f7a2afd093ab1eb40ea198d442c566fd16af789fc07b574"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/playback/NativeAudioEngine.kt",
+      "previous_sha256": "547413217ecc45b5e48d178ab242bbab7ae8b2ef51c9e5ca79fe48bbe17679b3",
+      "imported_sha256": "336baa83bb60ec890fabc7fa590134a3b5a18625377b4ad25ed9bc2585b20106"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/playback/NativeEnginePlayer.kt",
+      "previous_sha256": "e0afb17533be4113648bd2e9d0c9f6593a0c30275e1225da5c2e3257c8496618",
+      "imported_sha256": "b0782c5471342702facc47b2145286343fcc60f1f64ff2bafb4742ffc86746a6"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/playback/TransitionSettings.kt",
+      "previous_sha256": null,
+      "imported_sha256": "bbde6345c8a7f38b75fddbc71dc152af5fdeaf07cca126e5632c9cbe9d9b85e7"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/service/DeterministicAudioService.kt",
+      "previous_sha256": "88b1f7c1624050b516d8ca4647a5de134690ef1495119235a31445c84bfc301a",
+      "imported_sha256": "479a955a3f0a6698571ada6aae230657cc13a2070413f993d253ba3d5cab1769"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/state/AudioEngineStateRepository.kt",
+      "previous_sha256": "b08a675a56b3849f4f5d62b7389fb80da136222d01f92b1ce3becde1d6d7a2b6",
+      "imported_sha256": "0eb749c2b3e8b7fef8ce26d2b7828d9e398238ef8c079b7dc3ee986379372218"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/AppearanceCard.kt",
+      "previous_sha256": null,
+      "imported_sha256": "70834070a79a0d2f2a4b0accc9bd68b984fac30336fb1d80a6a5499476bc36b7"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/DapModeScreen.kt",
+      "previous_sha256": null,
+      "imported_sha256": "0207f56613b03c0acf1946aa57acc58e35b45f908a7691f29ebd09cab408ed10"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/DspRackScreen.kt",
+      "previous_sha256": "f72ac5f6886cdb820f83f3a9c5dec91a57083480e55a999da1be8c3f797b4d41",
+      "imported_sha256": "edd4754cba8a0a4e3f9cd20fa6954dce53ed7af4a935bbf8706597d8472a575f"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/ForensicVisualizer.kt",
+      "previous_sha256": "f65c5de630fe647b49d76e15e26e0719fc1affb9b4a3e7fd0c799a1a87da02a6",
+      "imported_sha256": "9d4555f3bb9938ea8b56ac4fd7e245abe26472e7aa4e4cb9db1c9bfec53c4413"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/LicensesSheet.kt",
+      "previous_sha256": null,
+      "imported_sha256": "43bdb321512b8fa504a72e728b7c8718d56d3fe71d3e1768006a7bbe0fd16b8e"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/NowPlayingScreen.kt",
+      "previous_sha256": "7f7f42a1fa9ea616071e447804c9698659e48c5667fce5124b41a765a2e1d72a",
+      "imported_sha256": "c7e710ab71a50ded35a3e562745b08ed50947893776a326fcbd912f10b813d4f"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/OutputScreen.kt",
+      "previous_sha256": "69297eaf962e278b687d322881b8b633d196885806bae06ec4871fba7419a01f",
+      "imported_sha256": "e9284f3058a1a35192967163bac650fbb93456028dbbabad9fa21c8bc016d326"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/PathScreen.kt",
+      "previous_sha256": "2585bbcc46c2e3becbc842846ebf4e87d897cbb24873d8c61a0b850d025a32e8",
+      "imported_sha256": "a2f96dcc1980905ea32cf0b9959255ac76515dd6961eab01269f092ba5381749"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/PlayingScreen.kt",
+      "previous_sha256": "8b984d06b5cf481e1cc470ebc327a76d1368a37abe8fe95e72cd25aadf7761ab",
+      "imported_sha256": "a337c1144608af2c7cc661d9f008c1e18fbad029ab67d3f72b61dd80a7ee8384"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/QueueSheet.kt",
+      "previous_sha256": null,
+      "imported_sha256": "be181c431066d4a8333197f3e394bb2b1b7a1b321adfc6dcb6a4932d1d7968ab"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/SignalPathSheet.kt",
+      "previous_sha256": "edbbb7e294bdc5200f1a4a6befc5ef726b00b519da705200a92792d1a2040760",
+      "imported_sha256": "d0ca641d0ea5b9be07d34361a86fb39aba5254c541a4bb27ec9c3d9e341993a4"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/TransitionsSheet.kt",
+      "previous_sha256": null,
+      "imported_sha256": "3cc15e3ba436e99ac6565ea3afac3b653ee6101b9314fafa1a535b439265b4f6"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/drive/GoogleDriveClient.kt",
+      "previous_sha256": "4c19436141dbf04b3e765adbdc034cd7f8d54fe85789684eb694d9f788229f25",
+      "imported_sha256": "2bf8837dcbba235b9d2f166e68bf53cb2e5e26a682b95512e6c1da9c5f95b895"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/source/DriveByteSource.kt",
+      "previous_sha256": "fd43dd5bf3e385a92c0d2067c33aa14c215b8d826f5e07b258ba2d6a663c1c1f",
+      "imported_sha256": "a1446087440b805af8a3b399ff2293aadce3c7151b406690f2a0727f10be986d"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/library/source/NextTrackPrefetcher.kt",
+      "previous_sha256": "65fa5763d85868b16534a8b47749b3796bfd97de22440f4f2335a7646eff7277",
+      "imported_sha256": "8672b9e5b566dfbb3ec080154740701b1126f58c048a99e831f16781830409ec"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/Artwork.kt",
+      "previous_sha256": null,
+      "imported_sha256": "aa5b3ccb0b2746444abd3305a6ca68748dbf67c56d44f3721efff1511a8bf7b3"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/Controls.kt",
+      "previous_sha256": null,
+      "imported_sha256": "55b42ddf9a564817e5c8b9e21dcf3999859624679cdb5bf22bf703a91557e8bc"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/FacetedShape.kt",
+      "previous_sha256": "fbdbb214a0685186bce5e2546940f5c95d4d6011f180c08b9fb61268f05f5813",
+      "imported_sha256": "0e751ff3c5aad2830867fe65e332426175e7f12936ef70c1d00ad519ab504179"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/Glass.kt",
+      "previous_sha256": null,
+      "imported_sha256": "046e388e77e994be1aa10c573e9c94f4cc03fc4e52a428969c7adbeb42787973"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/KnurledKnob.kt",
+      "previous_sha256": "41018c9ba8c12c1c521ebad64d596044b5c03ef03e7079b082b7dcd33d0f0ed5",
+      "imported_sha256": "dc72c9c42f40dd71973deee2ac0048d37916b3c503f617922cd7f8dbf04a4c30"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/NeumorphicModifiers.kt",
+      "previous_sha256": "c52fa2450cf8a43902c2b27cabc333a78fcc712e89f04730882b70589b4f0cb5",
+      "imported_sha256": "0d6991cabc83ad12342557dfda1fe1742b3b7bf35b8be32f6e992f328ea26826"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/TactileFader.kt",
+      "previous_sha256": "c439cdc5cad74cfb6fced878da2e4c4d5e60377096e54af00750185c6e81ff7a",
+      "imported_sha256": "b60f8e3c8da6b2c1d0dc7392d141a0af7b35eb11316767604e49fd7f9448844d"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/VacuumTubeVisualizer.kt",
+      "previous_sha256": "6deab95c1e054c13ec17e99552ea17da938808ac6d401880401ba3d364ced00e",
+      "imported_sha256": "4f27b12d812cdf23a83657ae510cac6eda66b990272d668fc0ee6679be076ca2"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/components/Vinyl.kt",
+      "previous_sha256": null,
+      "imported_sha256": "edb9670b56ebc133910426b37bc0a693ca782fed56a18cc8b8c15b196d725b56"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/theme/Color.kt",
+      "previous_sha256": "59829c1e3a1a49c5e57eee4e68c9a9fee70ec7ce884e7b5ad8a0c37b540aa8e9",
+      "imported_sha256": "a214eb956698134d244b96684170f90a1889fa6f9ec507da6b9914323e23a244"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/theme/Look.kt",
+      "previous_sha256": null,
+      "imported_sha256": "61649f8e009099590c3585e783c05aa79f9c318e025e53aa5a9d76b93f3cbde2"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/theme/Theme.kt",
+      "previous_sha256": "2a88ad4246c95ccdf84184f68bec47fa85e66a85e3a30d21462215d7ff18d174",
+      "imported_sha256": "a1383ff81c60a96e90fc4f52ac11dc2208cfb7c38479e2192a079c31861c936e"
+    },
+    {
+      "path": "src/app/src/main/kotlin/com/audiophile/engine/ui/theme/Type.kt",
+      "previous_sha256": "4d29ba3d7a0d12f8c9fd2fbea10fcbbc26354f18f115fe6d2e54d435740543ce",
+      "imported_sha256": "98eca24f07cbbeeac9af69a0ab74662430a9ce3a2552ec4454a74ac80281e329"
+    },
+    {
+      "path": "src/app/src/main/res/font/barlow_500.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4"
+    },
+    {
+      "path": "src/app/src/main/res/font/barlow_600.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5"
+    },
+    {
+      "path": "src/app/src/main/res/font/barlow_condensed_600.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9"
+    },
+    {
+      "path": "src/app/src/main/res/font/ibm_plex_mono_500.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755"
+    },
+    {
+      "path": "src/app/src/main/res/font/inter_tight_400.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "0b1136391df8f465df009ddfccd173456be3021d581b821232a626f5645cbfbf"
+    },
+    {
+      "path": "src/app/src/main/res/font/inter_tight_600.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "6554b0cec0cdd4500bbf5da22a401ae58f44be8bb5e5c4be83d5e3683d6e80eb"
+    },
+    {
+      "path": "src/app/src/main/res/font/inter_tight_700.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "b4420b8b9a8217b4a402042d7db92e4ec74716c16f7d6ad5ff73aaa5d69bc097"
+    },
+    {
+      "path": "src/app/src/main/res/font/inter_tight_800.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "3d35c5697f9a651dde2880eb88a97e0da28bd1541c9458705ec79eb7327ea7c7"
+    },
+    {
+      "path": "src/app/src/main/res/font/jetbrains_mono_500.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "11aa5c1dc4c2c67e830cb4a7fb7d2e7e6f72257085dfc2410a8fc3e83f39f4bc"
+    },
+    {
+      "path": "src/app/src/main/res/font/jetbrains_mono_600.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "d873a587f9090e56e955f56130ee5791bd9ea23c994a72d2e7ff970a9289d2aa"
+    },
+    {
+      "path": "src/app/src/main/res/font/sora_400.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "ff5744c0503ada23b4bb1a888678cfa45f4d529ef6bdbe6e66adf6b2e1de78d6"
+    },
+    {
+      "path": "src/app/src/main/res/font/sora_600.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "5144c645b063a0991028e8304297962852480648b439a72b617180e870f5bbaf"
+    },
+    {
+      "path": "src/app/src/main/res/font/sora_700.ttf",
+      "previous_sha256": null,
+      "imported_sha256": "b8d97b2d3016ccbb38026128c9527b95d57c723301b4909270dc712a8ce5b56b"
+    },
+    {
+      "path": "src/app/src/main/res/raw/acoustic_chamber.wav",
+      "previous_sha256": null,
+      "imported_sha256": "da0a24eeb02774ab04b0235c4ab30e8f96a1226b709eba9951be80089667a27d"
+    },
+    {
+      "path": "src/app/src/main/res/raw/binaural_crossfeed.wav",
+      "previous_sha256": null,
+      "imported_sha256": "2db65867990657a95f465fc8f77a37d9ef3f886cc371c43f2d2f5180831c041a"
+    },
+    {
+      "path": "src/app/src/main/res/raw/nearfield_studio.wav",
+      "previous_sha256": null,
+      "imported_sha256": "6dba69ca5c70e8b614343904e5b503d7834cefe6ddeda001e5428d7552e0de90"
+    },
+    {
+      "path": "src/app/src/main/res/xml/device_filter.xml",
+      "previous_sha256": null,
+      "imported_sha256": "7308bfebb84403936f3d5388ca2d0020f6b54110800ca447e8e304584e627927"
+    },
+    {
+      "path": "src/app/src/test/cpp/dsp_chain_test.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "d5bba52a0bf05c94925c92a29f1fe8c6e5c46e17f508b01b3603789d4040f5a2"
+    },
+    {
+      "path": "src/app/src/test/cpp/fake_usb_dac.hpp",
+      "previous_sha256": null,
+      "imported_sha256": "6fa07076385956196e1d083c6989ef91bf11d9a374925a1aba14be4d74a3d25e"
+    },
+    {
+      "path": "src/app/src/test/cpp/ffmpeg_decoder_test.cpp",
+      "previous_sha256": "68aa5490e205a4c971d7d85e0728f5bdf620957c659b930e8f347a7cf68a7d4b",
+      "imported_sha256": "b5a8ff6437a15d70285228ef72d5765fee6e0bef794c67602333e040989b7f78"
+    },
+    {
+      "path": "src/app/src/test/cpp/flac_decoder_test.cpp",
+      "previous_sha256": "218eea089b3ee429844e40ed87f029a09b236ebac38c2a27d65d96370121d4af",
+      "imported_sha256": "ad65d8890fee5f131cb03d762a80648898995f75de71ec13ad54c25ac45df02f"
+    },
+    {
+      "path": "src/app/src/test/cpp/gapless_decode_test.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "8399c69edba7a94b84f2a1a845700c8f98f4fe9535304bc457ff814c171633be"
+    },
+    {
+      "path": "src/app/src/test/cpp/hires_engine_test.cpp",
+      "previous_sha256": "372d0a309fcb10736b78626a2cd950fc9251b9c1eb17ba1e0839106aec5805ba",
+      "imported_sha256": "186ed11e3d0edaaa2f34c413104b0f5e9d8e8c789098b99d2932b6543f814922"
+    },
+    {
+      "path": "src/app/src/test/cpp/run_engine_host_tests.sh",
+      "previous_sha256": "f1bd0f4b3e81a9885927529d556c7377f6160c834eee4c661093831a4b9f7486",
+      "imported_sha256": "fac8f04886a25af0909c2decf783b25e32a636c82832da50c5c63fe85037620e"
+    },
+    {
+      "path": "src/app/src/test/cpp/run_wp1_host_tests.sh",
+      "previous_sha256": "24b30e141f6a4bfd357d3cf4a83de953dd637aeff8829a5e4caeaf897dfb16d4",
+      "imported_sha256": "3d0b27f06a7d1d5bb57b13062551e9bf2917f92bbea90ad3428bfd2615f7d802"
+    },
+    {
+      "path": "src/app/src/test/cpp/usb_driver_test.cpp",
+      "previous_sha256": null,
+      "imported_sha256": "e3063c7986ba956022de215569e84b5ab119d047571b8efb8da0fcc03079aa6e"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/hardware/UacRateGuardTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "d1a3e1dbac2af8675a6cee8938c27291cdabb4c68b7ab32033350be559249393"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/library/Mp4DurationTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "2cf4a3e952e29215650ab50bca20666a66c9158e5a9fd201c5d470495f5bff84"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/playback/DspSettingsTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "6fcf865f4d1c6000b868ee3ad20c20cd6ffa7a122408513a834f0f9741605c7a"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/playback/TransitionSettingsTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "b48bb7bd6ffb4d362a0a38b8d3d3a772b965dfeb494711803b38128592257f5e"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/telemetry/HrcTelemetryTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "895b9e33df755300d0112c16bd6fa2b4c464330d50d883b473227ce8c443c08c"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/telemetry/VuBallisticsHonestyTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "810a00bb8a6e82efddd3f6894e8049d3607cf8c64554160ede5ffc81010f38cd"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/library/source/DriveByteSourceAbortTest.kt",
+      "previous_sha256": null,
+      "imported_sha256": "dbb7279604431eaf6bdf14d2cb6bc6bfa0284cfb957fc226b838cd28ad09918c"
+    },
+    {
+      "path": "src/app/src/test/kotlin/com/audiophile/engine/library/source/FakeDriveServer.kt",
+      "previous_sha256": "62e70211b6670be637e629dff092282e554ba5a654654f5a819348a3e3a37821",
+      "imported_sha256": "fb81c648bd08847ac9659a03528fe80933112c843789572344ad877bb21afd49"
+    },
+    {
+      "path": ".github/workflows/android.yml",
+      "previous_sha256": "b006537b27201045a3a70763b9236f01c10c601a1f51d1ee6a9d280cca2fad8e",
+      "imported_sha256": "dc3e385701b8386d40b79df1e14eab7e43dc594f46fa6992a6a899b77e6d96b2"
+    },
+    {
+      "path": "docs/telemetry_schema.md",
+      "previous_sha256": "1560fc7826c2da44d5443f56aec02b0ca0dd868b4a70b8c55aea93a089914ee1",
+      "imported_sha256": "40443d32e76a696da7d661b80ff97446fa612e24ea95f50266bb09a162107fd4"
+    },
+    {
+      "path": "docs/third_party_fonts.md",
+      "previous_sha256": null,
+      "imported_sha256": "93885ccb271c9a9a165b5aed0de7d37499be2b43c3e4458c232fb31d59fe587a"
+    }
+  ]
+}

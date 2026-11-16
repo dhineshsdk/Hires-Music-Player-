@@ -1,0 +1,55 @@
+{
+  "source_root": "D:\\MusicPlayer-Projects\\BitChord",
+  "files": [
+    {
+      "source": "sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/HomeScreen.kt",
+      "sha256": "783d3e0af6d8ed13b7ca174a2a93d07797602988b435e637f098d219478dec16"
+    },
+    {
+      "source": "sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/LibraryScreen.kt",
+      "sha256": "d53961bee3b257a40407bf1c552bd90b6f7792ba7306653f4c62daa342f8179a"
+    },
+    {
+      "source": "app/src/main/java/com/music/bitchord/ui/components/FloatingBottomBar.kt",
+      "sha256": "aae3eb1e1e15b9face290c7ae2525aaabc4f6ff9661a04af67925acacee4209b"
+    },
+    {
+      "source": "app/src/main/java/com/music/bitchord/ui/components/MiniPlayer.kt",
+      "sha256": "0d75c892bf0b793060704833c786c40615bfc99cd27eb425e3c1b6035d28f52d"
+    },
+    {
+      "source": "sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/player/MeshGradient.kt",
+      "sha256": "57d8eef63121cf9f9f5bc12366e7d0001f08fc85f42edb114dd9a568628baf51"
+    },
+    {
+      "source": "sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/player/PlayerControls.kt",
+      "sha256": "1595a1c4cd2de4612e808bb14a12fc7fe8ea5bdebf15b4f0bbcdecbf45421309"
+    },
+    {
+      "source": "sharedUi/src/commonMain/composeResources/drawable/ic_player_next.xml",
+      "sha256": "4d8ed3715313f148ede007192c124aa3cbd3f93bed6ce185d50ca5f54c84c3b6"
+    },
+    {
+      "source": "sharedUi/src/commonMain/composeResources/drawable/ic_player_previous.xml",
+      "sha256": "620f786251c187bbf8f4cd5e4947349073104ca3dba620442bd7d4fe674b9670"
+    },
+    {
+      "source": "sharedUi/src/commonMain/composeResources/drawable/ic_player_play.xml",
+      "sha256": "f2b702566a74bb38587e024b28f01e9c8b58bc9ca413bd75e966ce31225bf775"
+    },
+    {
+      "source": "sharedUi/src/commonMain/composeResources/drawable/ic_player_pause.xml",
+      "sha256": "2cc9323997bff6e3497c910bfb2728908d9bb9955db9be0fc233ed2c5d19eb6c"
+    },
+    {
+      "source": "sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/player/ThinSlider.kt",
+      "sha256": "f71928542bb6e67dd0b531239fa5efc78b6ee14dbf62b2bbdd4832825570e89b"
+    }
+  ],
+  "adaptations": [
+    "Package renamed; host settings/haptics replaced by local adapters",
+    "ExoPlayer, remote artwork, account and party dependencies omitted",
+    "Glass uses Haze backdrop frost compatible with Compose 1.6; lens refraction deferred",
+    "Transport input is native-session callbacks, never a second player"
+  ]
+}

@@ -4,6 +4,7 @@
 namespace Audiophile::Core {
 
 // android.media.AudioFormat encodings, as reported in the "pcm-encoding" key.
+constexpr int32_t kEncodingDefault = 1;  // AudioFormat.ENCODING_DEFAULT: the output follows the source
 constexpr int32_t kEncodingPcm16 = 2;
 constexpr int32_t kEncodingPcmFloat = 4;
 constexpr int32_t kEncodingPcm24Packed = 21;

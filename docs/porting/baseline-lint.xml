@@ -1,0 +1,1034 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.5.2">
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        severity="Error"
+        message="`usbReceiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for null.USB_PERMISSION"
+        category="Correctness"
+        priority="5"
+        summary="Missing `registerReceiver()` exported flag"
+        explanation="In Android U, all receivers registering for non-system broadcasts are required to include a flag indicating the receiver&apos;s exported state. Apps registering for non-system broadcasts should use the `ContextCompat#registerReceiver` APIs with flags set to either `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED`.&#xA;&#xA;If you are not expecting broadcasts from other apps on the device, register your receiver with `RECEIVER_NOT_EXPORTED` to protect your receiver on all platform releases."
+        url="https://developer.android.com/reference/androidx/core/content/ContextCompat#registerReceiver(android.content.Context,android.content.BroadcastReceiver,android.content.IntentFilter,int)"
+        urls="https://developer.android.com/reference/androidx/core/content/ContextCompat#registerReceiver(android.content.Context,android.content.BroadcastReceiver,android.content.IntentFilter,int)"
+        errorLine1="            context.registerReceiver(usbReceiver, filter)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\hardware\UsbDeviceManagerBridge.kt"
+            line="121"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(autoLoadedPreset)"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="98"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(autoLoadedPreset)"
+        errorLine2="                               ~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="98"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        val activeDacName = usb?.profile?.deviceName ?: PlaybackHolder.player?.route?.value?.deviceName"
+        errorLine2="                                                        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="122"
+            column="57"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                        PlaybackHolder.player?.setBitPerfectEnabled(false)"
+        errorLine2="                        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="146"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                        PlaybackHolder.player?.setBitPerfectEnabled(false)"
+        errorLine2="                                               ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="146"
+            column="48"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        val token = SessionToken(appContext, ComponentName(appContext, DeterministicAudioService::class.java))"
+        errorLine2="                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="181"
+            column="72"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setDsp(_dspRackState.value)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="186"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setDsp(_dspRackState.value)"
+        errorLine2="                                       ~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="186"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setTransitions(_transitionSettings.value)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="187"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setTransitions(_transitionSettings.value)"
+        errorLine2="                                       ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="187"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.mixing?.let { mixingFlow ->"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="188"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.route?.let { routeFlow ->"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="194"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.engineFormat?.let { formatFlow ->"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="208"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.telemetry?.let { telemetryFlow ->"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="220"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        val format = PlaybackHolder.player?.engineFormat?.value"
+        errorLine2="                     ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="253"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        val route = PlaybackHolder.player?.route?.value"
+        errorLine2="                    ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="254"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(newState)"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="395"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(newState)"
+        errorLine2="                               ~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="395"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1"
+        errorLine2="                      ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="416"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1"
+        errorLine2="                                             ~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="416"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1"
+        errorLine2="                      ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="439"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1"
+        errorLine2="                                             ~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="439"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.clearImpulse()"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="450"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.clearImpulse()"
+        errorLine2="                               ~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="450"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1"
+        errorLine2="                      ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="466"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="            val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1"
+        errorLine2="                                             ~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="466"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="478"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="478"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                    val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1"
+        errorLine2="                              ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="493"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                    val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1"
+        errorLine2="                                                     ~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="493"
+            column="54"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                        PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="502"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                        PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                                               ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="502"
+            column="48"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                    PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                    ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="506"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                    PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="506"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="511"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="511"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(false)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="515"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(false)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="515"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="519"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="                PlaybackHolder.player?.setBitPerfectEnabled(true)"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="519"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setTransitions(settings)"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="575"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setTransitions(settings)"
+        errorLine2="                               ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="575"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="    fun currentAlbumKey(): String? = PlaybackHolder.player?.currentAlbumKey()"
+        errorLine2="                                     ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="579"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="    fun currentAlbumKey(): String? = PlaybackHolder.player?.currentAlbumKey()"
+        errorLine2="                                                            ~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="579"
+            column="61"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(preset)"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="602"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(preset)"
+        errorLine2="                               ~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="602"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(defaultPreset)"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="620"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        severity="Error"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        category="Correctness"
+        priority="4"
+        summary="Unsafe opt-in usage intended to be error-level severity"
+        explanation="This API has been flagged as opt-in with error-level severity.&#xA;&#xA;Any declaration annotated with this marker is considered part of an unstable or&#xA;otherwise non-standard API surface and its call sites should accept the opt-in&#xA;aspect of it by using the `@OptIn` annotation, using the marker annotation --&#xA;effectively causing further propagation of the opt-in aspect -- or configuring&#xA;the `UnsafeOptInUsageError` check&apos;s options for project-wide opt-in.&#xA;&#xA;To configure project-wide opt-in, specify the `opt-in` option value in `lint.xml`&#xA;as a comma-delimited list of opted-in annotations:&#xA;&#xA;```&#xA;&lt;lint>&#xA;    &lt;issue id=&quot;UnsafeOptInUsageError&quot;>&#xA;        &lt;option name=&quot;opt-in&quot; value=&quot;com.foo.ExperimentalBarAnnotation&quot; />&#xA;    &lt;/issue>&#xA;&lt;/lint>&#xA;```"
+        errorLine1="        PlaybackHolder.player?.setDsp(defaultPreset)"
+        errorLine2="                               ~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\state\AudioEngineStateRepository.kt"
+            line="620"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Optional Modifier parameter should have a default value of `Modifier`"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\BiquadCurveCanvas.kt"
+            line="46"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="private fun VuMeter(channel: String, levelDb: Float?, isClipping: Boolean = false, modifier: Modifier = Modifier) {"
+        errorLine2="                                                                                   ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\DapModeScreen.kt"
+            line="419"
+            column="84"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\DspRackScreen.kt"
+            line="48"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\ForensicVisualizer.kt"
+            line="37"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="fun GlassChip(text: String, color: Color = palette.ink, fill: Color? = null, modifier: Modifier = Modifier) {"
+        errorLine2="                                                                             ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\Glass.kt"
+            line="83"
+            column="78"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\KnurledKnob.kt"
+            line="40"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier,"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\PlayingScreen.kt"
+            line="67"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Modifier parameter should be the first optional parameter"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\TactileFader.kt"
+            line="37"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Optional Modifier parameter should have a default value of `Modifier`"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\TactileFader.kt"
+            line="37"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        severity="Warning"
+        message="Optional Modifier parameter should have a default value of `Modifier`"
+        category="Correctness"
+        priority="3"
+        summary="Guidelines for Modifier parameters in a Composable function"
+        explanation="The first (or only) Modifier parameter in a Composable function should follow the following rules:&#xA;- Be named `modifier`&#xA;- Have a type of `Modifier`&#xA;- Either have no default value, or have a default value of `Modifier`&#xA;- If optional, be the first optional parameter in the parameter list"
+        errorLine1="    modifier: Modifier = Modifier"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\VacuumTubeVisualizer.kt"
+            line="39"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ExportedService"
+        severity="Warning"
+        message="Exported service does not require permission"
+        category="Security"
+        priority="5"
+        summary="Exported service does not require permission"
+        explanation="Exported services (services which either set `exported=true` or contain an intent-filter and do not specify `exported=false`) should define a permission that an entity must have in order to launch the service or bind to it. Without this, any application can use this service."
+        url="https://goo.gle/ExportedService"
+        urls="https://goo.gle/ExportedService"
+        errorLine1="        &lt;service"
+        errorLine2="         ~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\AndroidManifest.xml"
+            line="38"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        severity="Warning"
+        message="Do not place Android context classes in static fields (static reference to `NativeEnginePlayer` which has field `context` pointing to `Context`); this is a memory leak"
+        category="Performance"
+        priority="6"
+        summary="Static Field Leaks"
+        explanation="A static field will leak contexts.&#xA;&#xA;Non-static inner classes have an implicit reference to their outer class. If that outer class is for example a `Fragment` or `Activity`, then this reference means that the long-running handler/loader/task will hold a reference to the activity which prevents it from getting garbage collected.&#xA;&#xA;Similarly, direct field references to activities and fragments from these longer running instances can cause leaks.&#xA;&#xA;ViewModel classes should never point to Views or non-application Contexts."
+        errorLine1="    @Volatile var player: NativeEnginePlayer? = null"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\service\DeterministicAudioService.kt"
+            line="117"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        severity="Information"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        category="Performance"
+        priority="3"
+        summary="`State&lt;T>` will autobox values assigned to this state. Use a specialized state type instead."
+        explanation="Calling `mutableStateOf&lt;T>()` when `T` is either backed by a primitive type on the JVM or is a value class results in a state implementation that requires all state values to be boxed. This usually causes an additional allocation for each state write, and adds some additional work to auto-unbox values when reading the value of the state. Instead, prefer to use a specialized primitive state implementation for `Int`, `Long`, `Float`, and `Double` when the state does not need to track null values and does not override the default `SnapshotMutationPolicy`. See `mutableIntStateOf()`, `mutableLongStateOf()`, `mutableFloatStateOf()`, and `mutableDoubleStateOf()` for more information."
+        errorLine1="    var lastHapticVal by remember { mutableStateOf(value) }"
+        errorLine2="                                    ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\ui\components\KnurledKnob.kt"
+            line="46"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        severity="Information"
+        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
+        category="Performance"
+        priority="3"
+        summary="`State&lt;T>` will autobox values assigned to this state. Use a specialized state type instead."
+        explanation="Calling `mutableStateOf&lt;T>()` when `T` is either backed by a primitive type on the JVM or is a value class results in a state implementation that requires all state values to be boxed. This usually causes an additional allocation for each state write, and adds some additional work to auto-unbox values when reading the value of the state. Instead, prefer to use a specialized primitive state implementation for `Int`, `Long`, `Float`, and `Double` when the state does not need to track null values and does not override the default `SnapshotMutationPolicy`. See `mutableIntStateOf()`, `mutableLongStateOf()`, `mutableFloatStateOf()`, and `mutableDoubleStateOf()` for more information."
+        errorLine1="    var prefetchPercent by remember { mutableStateOf(0) }"
+        errorLine2="                                      ~~~~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\kotlin\com\audiophile\engine\library\LibraryScreen.kt"
+            line="399"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="MissingApplicationIcon"
+        severity="Warning"
+        message="Should explicitly set `android:icon`, there is no default"
+        category="Usability:Icons"
+        priority="5"
+        summary="Missing application icon"
+        explanation="You should set an icon for the application as whole because there is no default. This attribute must be set as a reference to a drawable resource containing the image (for example `@drawable/icon`)."
+        url="https://developer.android.com/studio/publish/preparing#publishing-configure"
+        urls="https://developer.android.com/studio/publish/preparing#publishing-configure"
+        errorLine1="    &lt;application"
+        errorLine2="     ~~~~~~~~~~~">
+        <location
+            file="C:\Users\SDK\.codex\worktrees\1faa\Music Player\src\app\src\main\AndroidManifest.xml"
+            line="15"
+            column="6"/>
+    </issue>
+
+</issues>

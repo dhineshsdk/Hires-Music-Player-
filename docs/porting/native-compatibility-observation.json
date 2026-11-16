@@ -1,0 +1,11 @@
+{
+  "device": "Samsung Galaxy S24+",
+  "context": "Android developer-build compatibility dialog during isolated preview launch",
+  "observed_16kb_diagnostic": {
+    "libc++_shared.so": "LOAD segment not aligned",
+    "libaudiophile_engine.so": "Unknown error",
+    "libsoxr.so": "Unknown error"
+  },
+  "status": "unresolved; acknowledged only to continue UI smoke test",
+  "persistent_warning_suppression_selected": false
+}

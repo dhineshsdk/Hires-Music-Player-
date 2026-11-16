@@ -156,8 +156,11 @@ DecodeError FlacDecoder::Open(SeekableSource& source) noexcept {
     if (!FLAC__stream_decoder_process_until_end_of_metadata(Dec(decoder_)) || !haveInfo_ || failed_) {
         return DecodeError::Corrupt;
     }
-    if (format_.channels == 0 || format_.sampleRate == 0 || format_.validBits == 0 || blockCapacity_ == 0) {
+    if (format_.channels == 0 || format_.sampleRate == 0 || format_.validBits == 0) {
         return DecodeError::Corrupt;
+    }
+    if (blockCapacity_ == 0) {
+        blockCapacity_ = 65535;
     }
     block_ = std::make_unique<uint8_t[]>(blockCapacity_ * format_.BytesPerFrame());
     return DecodeError::None;

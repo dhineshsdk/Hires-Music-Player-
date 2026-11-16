@@ -1,0 +1,42 @@
+{
+  "package": "com.audiophile.engine.portpreview",
+  "device": "Samsung Galaxy S24+",
+  "checks": [
+    {
+      "check": "Home renders device albums",
+      "passed": true
+    },
+    {
+      "check": "Library categories and artwork render",
+      "passed": true
+    },
+    {
+      "check": "Search handles no matches",
+      "passed": true
+    },
+    {
+      "check": "Explore identifies unconnected online discovery",
+      "passed": true
+    },
+    {
+      "check": "Local FLAC opens through native session and pauses",
+      "passed": true
+    },
+    {
+      "check": "Seeking preserves paused state",
+      "passed": true
+    },
+    {
+      "check": "Queue reorder completes",
+      "passed": true
+    },
+    {
+      "check": "Queue removal completes",
+      "passed": true
+    }
+  ],
+  "playback_requested": true,
+  "completed": true,
+  "failure": null,
+  "warnings": []
+}

@@ -15,6 +15,7 @@
 /* Structs without pointers: identical on every target. */
 HRC_LAYOUT(hrc_engine_config, 16);
 HRC_LAYOUT(hrc_output_config, 32);
+HRC_LAYOUT(hrc_transition_config, 16);
 HRC_LAYOUT(hrc_stage_telemetry, 16);
 HRC_LAYOUT(hrc_source_telemetry, 72);
 HRC_LAYOUT(hrc_output_telemetry, 72);

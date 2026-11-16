@@ -15,6 +15,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0-audiophile"
+        resValue("string", "app_name", "Bit-Perfect Audio Engine")
 
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
@@ -28,6 +29,17 @@ android {
         }
     }
 
+    signingConfigs {
+        // Debug-only key committed on purpose: every build (CI or local) is signed identically,
+        // so new builds install over old ones and keep app data. Never use for release.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -35,6 +47,13 @@ android {
         }
         debug {
             isMinifyEnabled = false
+        }
+        create("portPreview") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".portpreview"
+            versionNameSuffix = "-ui-port"
+            matchingFallbacks += listOf("debug")
+            resValue("string", "app_name", "Music Player - UI port")
         }
     }
 
@@ -67,6 +86,8 @@ android {
 }
 
 dependencies {
+    // BitChord's frosted navigation material, pinned to our Compose 1.6 baseline.
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.1")

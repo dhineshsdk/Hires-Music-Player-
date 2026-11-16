@@ -22,6 +22,8 @@ struct OutputInfo {
     uint32_t flags{0};             // HRC_OUTPUT_STATE_*
     uint32_t bufferCapacityFrames{0};
     uint32_t burstFrames{0};
+    int64_t latency_ns{-1};
+    char device_name[HRC_NAME_CHARS]{0};
 };
 
 /** Implemented by the engine. */
@@ -49,6 +51,7 @@ public:
     virtual void Pause() noexcept = 0;
     virtual void Stop() noexcept = 0;
     virtual void Close() noexcept = 0;
+    virtual bool GetClockDrift(int32_t& source, float& driftPpm) noexcept { (void)source; (void)driftPpm; return false; }
 };
 
 /**
@@ -67,7 +70,9 @@ public:
         info.format = request.format;
         info.bufferCapacityFrames = 4096;
         info.burstFrames = 256;
+        std::strncpy(info.device_name, "Manual Test Output", sizeof(info.device_name) - 1);
         opens_.fetch_add(1, std::memory_order_relaxed);
+        if (request.format == refused_.load(std::memory_order_relaxed)) return false;
         return failOpen_.load(std::memory_order_relaxed) == false;
     }
     bool Start() noexcept override { running_.store(true, std::memory_order_release); return true; }
@@ -101,6 +106,8 @@ public:
     int Opens() const noexcept { return opens_.load(std::memory_order_relaxed); }
     bool Running() const noexcept { return running_.load(std::memory_order_acquire); }
     void FailNextOpens(bool fail) noexcept { failOpen_.store(fail, std::memory_order_relaxed); }
+    // Opens in this sample format fail, like a shared mixer that takes only float.
+    void RefuseFormat(hrc_sample_format format) noexcept { refused_.store(format, std::memory_order_relaxed); }
 
 private:
     OutputRequest request_{};
@@ -108,6 +115,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> inRender_{false};
     std::atomic<bool> failOpen_{false};
+    std::atomic<hrc_sample_format> refused_{HRC_SAMPLE_UNKNOWN - 1};
     std::atomic<int> opens_{0};
 };
 

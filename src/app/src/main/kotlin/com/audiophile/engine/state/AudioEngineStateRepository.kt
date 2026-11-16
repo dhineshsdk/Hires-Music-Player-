@@ -15,11 +15,16 @@ import androidx.media3.session.SessionToken
 import com.audiophile.engine.bluetooth.BluetoothTelemetryManager
 import com.audiophile.engine.hardware.ConnectedUsbDevice
 import com.audiophile.engine.hardware.HardwareProfileDatabase
+import com.audiophile.engine.hardware.UsbDeviceCategory
+import com.audiophile.engine.hardware.UsbDeviceEvent
 import com.audiophile.engine.hardware.UsbDeviceManagerBridge
 import com.audiophile.engine.hardware.UsbDeviceProfile
 import com.audiophile.engine.library.LibraryTrack
 import com.audiophile.engine.library.MusicLibrary
 import com.audiophile.engine.model.*
+import com.audiophile.engine.playback.EXTRA_ALBUM_ID
+import com.audiophile.engine.playback.TransitionSettings
+import com.audiophile.engine.playback.TransitionSettingsStore
 import com.audiophile.engine.service.DeterministicAudioService
 import com.audiophile.engine.service.PlaybackHolder
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +38,15 @@ import kotlinx.coroutines.launch
  * and Jetpack Compose UI state.
  */
 class AudioEngineStateRepository private constructor(context: Context) {
+
+    data class PlaybackUiState(
+        val connected: Boolean = false, val loading: Boolean = false,
+        val canNext: Boolean = false, val canPrevious: Boolean = false,
+        val error: String? = null,
+    )
+    private val _playbackUi = MutableStateFlow(PlaybackUiState())
+    val playbackUi: StateFlow<PlaybackUiState> = _playbackUi.asStateFlow()
+    private var pendingPlayback: ((MediaController) -> Unit)? = null
 
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(Dispatchers.Default)
@@ -65,6 +79,24 @@ class AudioEngineStateRepository private constructor(context: Context) {
     private val _outputMode = MutableStateFlow(OutputMode.ModeA_StandardAndroid)
     val outputMode: StateFlow<OutputMode> = _outputMode.asStateFlow()
 
+    private val _userPreferredOutputMode = MutableStateFlow(OutputMode.ModeA_StandardAndroid)
+    val userPreferredOutputMode: StateFlow<OutputMode> = _userPreferredOutputMode.asStateFlow()
+
+    private val _uacRateGuardMessage = MutableStateFlow<String?>(null)
+    val uacRateGuardMessage: StateFlow<String?> = _uacRateGuardMessage.asStateFlow()
+
+    private val _autoFlashPeq = MutableStateFlow(false)
+    val autoFlashPeq: StateFlow<Boolean> = _autoFlashPeq.asStateFlow()
+
+    // 4b. Gapless and crossfade between tracks
+    private val transitionStore = TransitionSettingsStore(appContext)
+    private val _transitionSettings = MutableStateFlow(transitionStore.load())
+    val transitionSettings: StateFlow<TransitionSettings> = _transitionSettings.asStateFlow()
+
+    // True only while the engine reports that two tracks are being mixed (never simulated).
+    private val _crossfadeMixing = MutableStateFlow(false)
+    val crossfadeMixing: StateFlow<Boolean> = _crossfadeMixing.asStateFlow()
+
     // 5. Bluetooth Telemetry
     val bluetoothTelemetryManager = BluetoothTelemetryManager(context)
     val bluetoothTelemetry: StateFlow<BluetoothTelemetry> = bluetoothTelemetryManager.telemetry
@@ -77,18 +109,25 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
     val connectedUsbDevice: StateFlow<ConnectedUsbDevice?> = usbBridge.connectedDevice
 
+    // 6b. Native Zero-Copy HRC Telemetry (512-byte ABI struct)
+    private val _hrcTelemetry = MutableStateFlow<HrcTelemetry?>(null)
+    val hrcTelemetry: StateFlow<HrcTelemetry?> = _hrcTelemetry.asStateFlow()
+
+    // 6c. Up Next Playback Queue
+    private val _queue = MutableStateFlow<List<com.audiophile.engine.model.QueueItem>>(emptyList())
+    val queue: StateFlow<List<com.audiophile.engine.model.QueueItem>> = _queue.asStateFlow()
+
     // 7. Dynamic Roon-Style Signal Path State
-    // kotlinx combine() has typed overloads for at most five flows, so the
-    // hardware sources are paired first.
     private val outputHardware = combine(bluetoothTelemetry, connectedUsbDevice) { bt, usb -> bt to usb }
+    private val trackAndMetrics = combine(_trackMetadata, _forensicMetrics) { t, m -> t to m }
+    private val dspAndTelem = combine(_dspRackState, _hrcTelemetry) { d, telem -> d to telem }
 
     val signalPathState: StateFlow<SignalPathState> = combine(
-        _trackMetadata,
-        _forensicMetrics,
-        _dspRackState,
+        trackAndMetrics,
+        dspAndTelem,
         _outputMode,
         outputHardware
-    ) { track, metrics, dsp, mode, (bt, usb) ->
+    ) { (track, metrics), (dsp, telem), mode, (bt, usb) ->
         val activeDacName = usb?.profile?.deviceName ?: PlaybackHolder.player?.route?.value?.deviceName
         SignalPathState.buildPath(
             track = track,
@@ -96,7 +135,8 @@ class AudioEngineStateRepository private constructor(context: Context) {
             dsp = dsp,
             outputMode = mode,
             btTelemetry = bt,
-            connectedDacName = activeDacName
+            connectedDacName = activeDacName,
+            telemetry = telem
         )
     }.stateIn(scope, SharingStarted.Eagerly, SignalPathState())
 
@@ -105,6 +145,29 @@ class AudioEngineStateRepository private constructor(context: Context) {
         usbBridge.start()
         bluetoothTelemetryManager.initialize()
         connectController()
+
+        scope.launch(Dispatchers.Main) {
+            usbBridge.events.collect { event ->
+                when (event) {
+                    is UsbDeviceEvent.DeviceDetached -> {
+                        _outputMode.value = OutputMode.ModeA_StandardAndroid
+                        _uacRateGuardMessage.value = null
+                        PlaybackHolder.player?.setBitPerfectEnabled(false)
+                        refreshTrackMetadata()
+                    }
+                    is UsbDeviceEvent.DeviceAttached -> {
+                        val prefs = hardwareDatabase.getDevicePreferences(event.device.vendorId, event.device.productId)
+                        _userPreferredOutputMode.value = prefs.preferredMode
+                        _autoFlashPeq.value = prefs.autoFlashPeq
+                        if (prefs.autoFlashPeq) {
+                            flashHardwareDsp()
+                        }
+                        applyRateGuardAndOutputMode(_trackMetadata.value.sampleRateHz)
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     // --- Playback (Media3 controller connected to DeterministicAudioService) ---
@@ -129,15 +192,23 @@ class AudioEngineStateRepository private constructor(context: Context) {
         future.addListener({
             controller = runCatching { future.get() }.getOrNull()?.also {
                 it.addListener(controllerListener)
+                pendingPlayback?.let { action -> pendingPlayback = null; action(it) }
                 PlaybackHolder.player?.setDsp(_dspRackState.value)
+                PlaybackHolder.player?.setTransitions(_transitionSettings.value)
+                PlaybackHolder.player?.mixing?.let { mixingFlow ->
+                    scope.launch { mixingFlow.collect { _crossfadeMixing.value = it } }
+                }
                 refreshTrackMetadata()
 
                 // Reactively observe native player route updates (Android 14 bit-perfect negotiation)
                 PlaybackHolder.player?.route?.let { routeFlow ->
-                    scope.launch {
+                    scope.launch(Dispatchers.Main) {
                         routeFlow.collect { route ->
-                            _outputMode.value = if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
-                                                else OutputMode.ModeA_StandardAndroid
+                            if (_uacRateGuardMessage.value == null) {
+                                _outputMode.value = if (route.deviceName?.contains("Output B") == true) OutputMode.ModeC_Usbfs_BitPerfect
+                                                    else if (route.bitPerfect) OutputMode.ModeB_Android14_BitPerfect
+                                                    else OutputMode.ModeA_StandardAndroid
+                            }
                             refreshTrackMetadata()
                         }
                     }
@@ -145,9 +216,30 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
                 // Reactively observe engine format changes (sample rate & bit depth switching)
                 PlaybackHolder.player?.engineFormat?.let { formatFlow ->
-                    scope.launch {
-                        formatFlow.collect {
+                    scope.launch(Dispatchers.Main) {
+                        formatFlow.collect { format ->
+                            if (format != null) {
+                                applyRateGuardAndOutputMode(format.sampleRateHz)
+                            }
                             refreshTrackMetadata()
+                        }
+                    }
+                }
+
+                // Reactively observe zero-copy telemetry from native engine (30 Hz)
+                PlaybackHolder.player?.telemetry?.let { telemetryFlow ->
+                    scope.launch(Dispatchers.Main) {
+                        telemetryFlow.collect { telem ->
+                            _hrcTelemetry.value = telem
+                            if (telem != null && telem.hasLevels) {
+                                val ch = telem.levels.channels
+                                val peak = if (ch > 0) telem.levels.peakDbfs.take(ch).maxOrNull() ?: Float.NEGATIVE_INFINITY else Float.NEGATIVE_INFINITY
+                                val rms = if (ch > 0) telem.levels.rmsDbfs.take(ch).maxOrNull() ?: Float.NEGATIVE_INFINITY else Float.NEGATIVE_INFINITY
+                                _forensicMetrics.value = _forensicMetrics.value.copy(
+                                    peakLevelDbfs = peak,
+                                    rmsLevelDbfs = rms
+                                )
+                            }
                         }
                     }
                 }
@@ -162,41 +254,110 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
     private fun refreshTrackMetadata() {
         val c = controller ?: return
+        _playbackUi.value = PlaybackUiState(
+            connected = true,
+            loading = c.playbackState == Player.STATE_BUFFERING,
+            canNext = c.hasNextMediaItem(),
+            canPrevious = c.hasPreviousMediaItem() || c.currentPosition > 0L,
+            error = c.playerError?.message,
+        )
         val item = c.currentMediaItem
         if (item == null) {
             _trackMetadata.value = TrackMetadata()
+            _queue.value = emptyList()
             return
         }
         val meta = c.mediaMetadata
         val format = PlaybackHolder.player?.engineFormat?.value
         val route = PlaybackHolder.player?.route?.value
-        _outputMode.value = if (route?.bitPerfect == true) OutputMode.ModeB_Android14_BitPerfect
+        _outputMode.value = if (route?.deviceName?.contains("Output B") == true) OutputMode.ModeC_Usbfs_BitPerfect
+                            else if (route?.bitPerfect == true) OutputMode.ModeB_Android14_BitPerfect
                             else OutputMode.ModeA_StandardAndroid
         val uri = item.requestMetadata.mediaUri ?: item.localConfiguration?.uri
+        val libraryTrack = _library.value.firstOrNull { it.uri == uri }
         val extension = uri?.lastPathSegment?.substringAfterLast('.', "")?.uppercase().orEmpty()
         val sampleRate = format?.sampleRateHz ?: 0
         val bitDepth = format?.bitDepth ?: 0
         val channels = format?.channels ?: 0
         _trackMetadata.value = TrackMetadata(
-            title = meta.title?.toString() ?: uri?.lastPathSegment ?: "Unknown track",
+            title = meta.title?.toString() ?: uri?.takeIf { it.scheme != "content" }?.lastPathSegment ?: "Unknown track",
             artist = meta.artist?.toString().orEmpty(),
             album = meta.albumTitle?.toString().orEmpty(),
             sampleRateHz = sampleRate,
             bitDepth = bitDepth,
-            format = extension.ifEmpty { "PCM" },
+            format = libraryTrack?.codecLabel ?: extension.ifEmpty { "Audio" },
             // Decoded PCM rate, not the compressed file bitrate.
             bitRateKbps = sampleRate * bitDepth * channels / 1000,
             channels = channels,
             durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
             currentPositionMs = c.currentPosition,
             isPlaying = c.isPlaying,
-            isMemoryPlayLoaded = false
+            isMemoryPlayLoaded = false,
+            // Library tracks have a MediaStore album cover; picked files fall back to their embedded art.
+            albumArtUri = libraryTrack?.let {
+                android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI, it.albumId
+                ).toString()
+            },
+            mediaUri = uri?.toString()
         )
+
+        val count = c.mediaItemCount
+        val curIndex = c.currentMediaItemIndex
+        val q = ArrayList<com.audiophile.engine.model.QueueItem>(count)
+        for (i in 0 until count) {
+            val mi = c.getMediaItemAt(i)
+            val meta = mi.mediaMetadata
+            val mUri = mi.requestMetadata.mediaUri ?: mi.localConfiguration?.uri
+            val title = meta.title?.toString()
+                ?: mUri?.takeIf { it.scheme != "content" }?.lastPathSegment
+                ?: "Track #${i + 1}"
+            q.add(
+                com.audiophile.engine.model.QueueItem(
+                    index = i,
+                    mediaId = mi.mediaId,
+                    title = title,
+                    artist = meta.artist?.toString().orEmpty(),
+                    album = meta.albumTitle?.toString().orEmpty(),
+                    isPlaying = (i == curIndex)
+                )
+            )
+        }
+        _queue.value = q
+    }
+
+    fun playQueueIndex(index: Int) {
+        val c = controller ?: return
+        if (index in 0 until c.mediaItemCount) {
+            c.seekTo(index, 0L)
+            c.play()
+        }
+    }
+
+    fun removeQueueItem(index: Int) {
+        val c = controller ?: return
+        if (index in 0 until c.mediaItemCount) {
+            c.removeMediaItem(index)
+        }
+    }
+
+    fun clearQueue() {
+        val c = controller ?: return
+        c.clearMediaItems()
+    }
+
+    fun moveQueueItem(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from in 0 until c.mediaItemCount && to in 0 until c.mediaItemCount) c.moveMediaItem(from, to)
+    }
+
+    private fun whenControllerReady(action: (MediaController) -> Unit) {
+        controller?.let(action) ?: run { pendingPlayback = action }
     }
 
     /** Replaces the queue with the picked files and starts playing the first one. */
     fun openFiles(uris: List<Uri>) {
-        val c = controller ?: return
+        if (uris.isEmpty()) return
         uris.forEach { uri ->
             runCatching {
                 appContext.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -208,9 +369,11 @@ class AudioEngineStateRepository private constructor(context: Context) {
                 .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
                 .build()
         }
-        c.setMediaItems(items)
-        c.prepare()
-        c.play()
+        whenControllerReady { c ->
+            c.setMediaItems(items)
+            c.prepare()
+            c.play()
+        }
     }
 
     fun refreshLibrary() {
@@ -219,7 +382,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
 
     /** Replaces the queue with [tracks] and starts at [startIndex]. */
     fun playTracks(tracks: List<LibraryTrack>, startIndex: Int) {
-        val c = controller ?: return
+        if (tracks.isEmpty()) return
         val items = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.uri.toString())
@@ -228,19 +391,25 @@ class AudioEngineStateRepository private constructor(context: Context) {
                         .setTitle(track.title)
                         .setArtist(track.artist)
                         .setAlbumTitle(track.album)
+                        .setExtras(android.os.Bundle().apply { putLong(EXTRA_ALBUM_ID, track.albumId) })
                         .build()
                 )
                 .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(track.uri).build())
                 .build()
         }
-        c.setMediaItems(items, startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)), 0L)
-        c.prepare()
-        c.play()
+        whenControllerReady { c ->
+            c.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
+            c.prepare()
+            c.play()
+        }
     }
 
     fun togglePlayPause() {
         val c = controller ?: return
-        if (c.isPlaying) c.pause() else c.play()
+        if (c.isPlaying) c.pause() else {
+            if (c.playbackState == Player.STATE_IDLE) c.prepare()
+            c.play()
+        }
     }
 
     fun seekTo(positionMs: Long) {
@@ -252,7 +421,7 @@ class AudioEngineStateRepository private constructor(context: Context) {
     }
 
     fun skipToPrevious() {
-        controller?.seekToPreviousMediaItem()
+        controller?.seekToPrevious()
     }
 
     fun updateDspRack(transform: (DspRackState) -> DspRackState) {
@@ -263,11 +432,186 @@ class AudioEngineStateRepository private constructor(context: Context) {
         usbBridge.saveCurrentPreset(newState)
     }
 
+    fun loadConvolutionPreset(presetName: String) {
+        val resId = when (presetName) {
+            "Nearfield Studio" -> com.audiophile.engine.R.raw.nearfield_studio
+            "Acoustic Chamber" -> com.audiophile.engine.R.raw.acoustic_chamber
+            "Binaural Crossfeed" -> com.audiophile.engine.R.raw.binaural_crossfeed
+            else -> 0
+        }
+        if (resId == 0) {
+            clearConvolution()
+            return
+        }
+        try {
+            val afd = appContext.resources.openRawResourceFd(resId)
+            val pfd = afd.parcelFileDescriptor
+            val fd = pfd.fd
+            val cur = _dspRackState.value
+            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1
+            pfd.close()
+            afd.close()
+            if (res == 0) {
+                val taps = when (presetName) {
+                    "Nearfield Studio" -> 2048
+                    "Acoustic Chamber" -> 24000
+                    "Binaural Crossfeed" -> 1024
+                    else -> 0
+                }
+                updateDspRack { it.copy(convolutionEnabled = true, impulseResponseName = presetName, impulseTaps = taps) }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AudioEngineStateRepo", "Failed to load preset impulse: $presetName", e)
+        }
+    }
+
+    fun loadCustomImpulse(uri: Uri) {
+        try {
+            val pfd = appContext.contentResolver.openFileDescriptor(uri, "r") ?: return
+            val fd = pfd.fd
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotEmpty() } ?: "Custom IR"
+            val cur = _dspRackState.value
+            val res = PlaybackHolder.player?.loadImpulseFd(fd, cur.convolutionWetMix, cur.convolutionGainDb) ?: -1
+            pfd.close()
+            if (res == 0) {
+                updateDspRack { it.copy(convolutionEnabled = true, impulseResponseName = name, impulseTaps = 4096) }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AudioEngineStateRepo", "Failed to load custom impulse: $uri", e)
+        }
+    }
+
+    fun clearConvolution() {
+        PlaybackHolder.player?.clearImpulse()
+        updateDspRack { it.copy(convolutionEnabled = false, impulseResponseName = "None (Bypassed)", impulseTaps = 0) }
+    }
+
+    fun applyRateGuardAndOutputMode(trackSampleRate: Int = _trackMetadata.value.sampleRateHz) {
+        val preferred = _userPreferredOutputMode.value
+        val dev = usbBridge.connectedDevice.value
+        val profile = dev?.profile
+
+        if (preferred == OutputMode.ModeC_Usbfs_BitPerfect && dev != null && dev.fileDescriptor >= 0) {
+            val isFixed48k = profile?.category == UsbDeviceCategory.UAC1_DAP ||
+                (profile?.uacVersion == 1 && profile?.maxSampleRateHz == 48000) ||
+                profile?.profileId?.startsWith("fiio_snowsky_echo") == true
+
+            val targetSampleRate = if (isFixed48k) 48000 else 0
+            val iface = dev.audioStreamingInterface?.id ?: -1
+            val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1
+            if (res == 0) {
+                _outputMode.value = OutputMode.ModeC_Usbfs_BitPerfect
+                if (isFixed48k && trackSampleRate > 0 && trackSampleRate != 48000) {
+                    val rateStr = if (trackSampleRate % 1000 == 0) "${trackSampleRate / 1000} kHz"
+                                  else String.format(java.util.Locale.US, "%.1f kHz", trackSampleRate / 1000.0)
+                    _uacRateGuardMessage.value = "DAC locked at 48 kHz — libsoxr active for $rateStr"
+                } else {
+                    _uacRateGuardMessage.value = null
+                }
+            } else {
+                _uacRateGuardMessage.value = null
+                PlaybackHolder.player?.setBitPerfectEnabled(true)
+                _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+            }
+            return
+        }
+
+        _uacRateGuardMessage.value = null
+        when (preferred) {
+            OutputMode.ModeC_Usbfs_BitPerfect -> {
+                if (dev != null && dev.fileDescriptor >= 0) {
+                    val isFixed48k = profile?.category == UsbDeviceCategory.UAC1_DAP ||
+                        (profile?.uacVersion == 1 && profile?.maxSampleRateHz == 48000) ||
+                        profile?.profileId?.startsWith("fiio_snowsky_echo") == true
+                    val targetSampleRate = if (isFixed48k) 48000 else 0
+                    val iface = dev.audioStreamingInterface?.id ?: -1
+                    val res = PlaybackHolder.player?.selectUsbOutput(dev.fileDescriptor, iface, targetSampleRate) ?: -1
+                    if (res == 0) {
+                        _outputMode.value = OutputMode.ModeC_Usbfs_BitPerfect
+                        if (isFixed48k && trackSampleRate > 0 && trackSampleRate != 48000) {
+                            val rateStr = if (trackSampleRate % 1000 == 0) "${trackSampleRate / 1000} kHz"
+                                          else String.format(java.util.Locale.US, "%.1f kHz", trackSampleRate / 1000.0)
+                            _uacRateGuardMessage.value = "DAC locked at 48 kHz — libsoxr active for $rateStr"
+                        }
+                    } else {
+                        PlaybackHolder.player?.setBitPerfectEnabled(true)
+                        _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+                    }
+                } else {
+                    PlaybackHolder.player?.setBitPerfectEnabled(true)
+                    _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+                }
+            }
+            OutputMode.ModeB_Android14_BitPerfect -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(true)
+                _outputMode.value = OutputMode.ModeB_Android14_BitPerfect
+            }
+            OutputMode.ModeA_StandardAndroid -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(false)
+                _outputMode.value = OutputMode.ModeA_StandardAndroid
+            }
+            else -> {
+                PlaybackHolder.player?.setBitPerfectEnabled(true)
+                _outputMode.value = preferred
+            }
+        }
+    }
+
     fun setOutputMode(mode: OutputMode) {
-        // Only the shared mixer and Android 14 bit-perfect exist so far; any non-standard mode asks for bit-perfect.
-        PlaybackHolder.player?.setBitPerfectEnabled(mode != OutputMode.ModeA_StandardAndroid)
+        _userPreferredOutputMode.value = mode
+        val dev = usbBridge.connectedDevice.value
+        if (dev != null) {
+            val currentPrefs = hardwareDatabase.getDevicePreferences(dev.device.vendorId, dev.device.productId)
+            hardwareDatabase.saveDevicePreferences(
+                dev.device.vendorId,
+                dev.device.productId,
+                currentPrefs.copy(preferredMode = mode)
+            )
+        }
+        applyRateGuardAndOutputMode(_trackMetadata.value.sampleRateHz)
         refreshTrackMetadata()
     }
+
+    fun toggleAutoFlashPeq() {
+        val next = !_autoFlashPeq.value
+        _autoFlashPeq.value = next
+        val dev = usbBridge.connectedDevice.value
+        if (dev != null) {
+            val currentPrefs = hardwareDatabase.getDevicePreferences(dev.device.vendorId, dev.device.productId)
+            hardwareDatabase.saveDevicePreferences(
+                dev.device.vendorId,
+                dev.device.productId,
+                currentPrefs.copy(autoFlashPeq = next)
+            )
+        }
+        if (next) {
+            flashHardwareDsp()
+        }
+    }
+
+    /** Quick toggle for master DSP bypass (instant A/B test with bit-exact passthrough). */
+    fun toggleDspBypass() {
+        val current = _dspRackState.value
+        val bypassed = !current.isMasterBypassed
+        updateDspRack { it.copy(isMasterBypassed = bypassed) }
+    }
+
+    /** Flashes the active 10-band PEQ profile directly into hardware registers of connected USB DAC. */
+    fun flashHardwareDsp(): Boolean {
+        val peq = _dspRackState.value.peqBands
+        return usbBridge.flashHardwarePeq(peq)
+    }
+
+    /** Changes how tracks hand over; saved and applied to the engine at once. */
+    fun updateTransitions(transform: (TransitionSettings) -> TransitionSettings) {
+        val settings = transform(_transitionSettings.value)
+        _transitionSettings.value = settings
+        transitionStore.save(settings)
+        PlaybackHolder.player?.setTransitions(settings)
+    }
+
+    /** Key of the album that is playing, or null when there is none or it has no album tag. */
+    fun currentAlbumKey(): String? = PlaybackHolder.player?.currentAlbumKey()
 
     fun toggleFakeHiResSimulation() {
         val currentFake = _forensicMetrics.value.isFakeUpsampled

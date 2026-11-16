@@ -1,7 +1,12 @@
 #pragma once
 #include <memory>
 #include "AudioOutput.hpp"
+#include "PlaybackEngine.hpp"
 #include "hires_core.h"
+
+struct hrc_engine {
+    std::unique_ptr<Audiophile::Core::PlaybackEngine> engine;
+};
 
 // For tests and for the desktop host: create an engine on a given output (e.g. ManualOutput,
 // which the caller drives). Not part of the stable C API.

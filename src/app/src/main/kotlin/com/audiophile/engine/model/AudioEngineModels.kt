@@ -97,7 +97,9 @@ data class TrackMetadata(
     val currentPositionMs: Long = 0L,
     val isPlaying: Boolean = false,
     val isMemoryPlayLoaded: Boolean = false,
-    val albumArtUri: String? = null
+    val albumArtUri: String? = null,
+    /** The playing file, so the UI can read its embedded cover when MediaStore has none. */
+    val mediaUri: String? = null
 ) {
     val formattedDuration: String
         get() = formatTime(durationMs)

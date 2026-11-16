@@ -40,8 +40,8 @@ bool OboeOutput::Open(const OutputRequest& request, OutputCallback* callback, Ou
                                                             : oboe::SampleRateConversionQuality::Best)
         ->setUsage(oboe::Usage::Media)
         ->setContentType(oboe::ContentType::Music)
-        ->setSharingMode(oboe::SharingMode::Shared)
-        ->setPerformanceMode(oboe::PerformanceMode::None)
+        ->setSharingMode(request.bitPerfect ? oboe::SharingMode::Exclusive : oboe::SharingMode::Shared)
+        ->setPerformanceMode(request.bitPerfect ? oboe::PerformanceMode::LowLatency : oboe::PerformanceMode::None)
         ->setDataCallback(this)
         ->setErrorCallback(this);
 
@@ -58,7 +58,11 @@ bool OboeOutput::Open(const OutputRequest& request, OutputCallback* callback, Ou
     info.format = FromOboe(stream_->getFormat());
     info.bufferCapacityFrames = static_cast<uint32_t>(stream_->getBufferCapacityInFrames());
     info.burstFrames = static_cast<uint32_t>(stream_->getFramesPerBurst());
+    const auto latencyResult = stream_->calculateLatencyMillis();
+    info.latency_ns = latencyResult ? static_cast<int64_t>(latencyResult.value() * 1000000.0) : -1;
     if (stream_->getSharingMode() == oboe::SharingMode::Exclusive) info.flags |= HRC_OUTPUT_STATE_EXCLUSIVE;
+    const char* devName = info.backend == HRC_BACKEND_OPENSL ? "OpenSL ES" : "AAudio Bit-Perfect";
+    std::strncpy(info.device_name, devName, sizeof(info.device_name) - 1);
     HRC_LOGI(kTag, "Stream open at %d Hz, %d ch, format %s%s", info.sampleRate, info.channels,
              oboe::convertToText(stream_->getFormat()), request.bitPerfect ? ", bit-perfect" : "");
     return true;

@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import java.io.FileInputStream
 
 data class LibraryTrack(
     val id: Long,
@@ -16,7 +17,9 @@ data class LibraryTrack(
     val durationMs: Long,
     val trackNumber: Int,
     val discNumber: Int,
-    val mimeType: String
+    val mimeType: String,
+    val sampleRateHz: Int = 0,
+    val bitDepth: Int = 0
 ) {
     /** Short codec label for the list, from the MIME type (FLAC, WAV, ALAC/AAC, MP3...). */
     val codecLabel: String
@@ -30,6 +33,25 @@ data class LibraryTrack(
             "audio/x-dsf", "audio/dsf", "audio/x-dff" -> "DSD"
             else -> mimeType.substringAfter('/').uppercase()
         }
+
+    val isDsd: Boolean
+        get() = codecLabel == "DSD" ||
+                mimeType.contains("dsf", ignoreCase = true) ||
+                mimeType.contains("dff", ignoreCase = true) ||
+                uri.toString().endsWith(".dsf", ignoreCase = true) ||
+                uri.toString().endsWith(".dff", ignoreCase = true)
+
+    val isDrive: Boolean
+        get() = uri.scheme == "drive" ||
+                uri.toString().contains("drive.google.com") ||
+                uri.toString().contains("googleapis.com/drive") ||
+                artist == "Google Drive Cloud" ||
+                albumId == -1L
+
+    val isHiRes: Boolean
+        get() = isDsd ||
+                (bitDepth >= 24 || sampleRateHz > 48000) ||
+                (bitDepth == 0 && sampleRateHz == 0 && codecLabel in setOf("FLAC", "WAV", "AIFF"))
 }
 
 data class LibraryAlbum(
@@ -52,12 +74,17 @@ class MusicLibrary(private val context: Context) {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.TRACK,
-            MediaStore.Audio.Media.MIME_TYPE
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DISPLAY_NAME
         )
         val tracks = mutableListOf<LibraryTrack>()
         try {
             context.contentResolver.query(
-                collection, projection, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, null
+                collection, projection,
+                // The media scanner does not always call DSD files music, so they are matched by extension too.
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.DISPLAY_NAME} LIKE '%.dsf' OR " +
+                    "${MediaStore.Audio.Media.DISPLAY_NAME} LIKE '%.dff'",
+                null, null
             )?.use { c ->
                 val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -67,21 +94,33 @@ class MusicLibrary(private val context: Context) {
                 val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val trackCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
                 val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 while (c.moveToNext()) {
                     val id = c.getLong(idCol)
+                    val uri = ContentUris.withAppendedId(collection, id)
+                    val displayName = c.getString(nameCol).orEmpty()
+                    var duration = c.getLong(durationCol)
+                    // MediaStore cannot size ALAC and reports 0; read the length from the file's own header.
+                    if (duration <= 0L) duration = headerDurationMs(uri) ?: 0L
+                    val storedMime = c.getString(mimeCol).orEmpty()
+                    val mime = when {
+                        displayName.endsWith(".dsf", ignoreCase = true) -> "audio/x-dsf"
+                        displayName.endsWith(".dff", ignoreCase = true) -> "audio/x-dff"
+                        else -> storedMime
+                    }
                     // MediaStore stores TRACK as disc * 1000 + track number.
                     val rawTrack = c.getInt(trackCol)
                     tracks += LibraryTrack(
                         id = id,
-                        uri = ContentUris.withAppendedId(collection, id),
-                        title = c.getString(titleCol) ?: "Unknown title",
+                        uri = uri,
+                        title = c.getString(titleCol) ?: displayName.substringBeforeLast('.').ifEmpty { "Unknown title" },
                         artist = c.getString(artistCol)?.takeUnless { it == "<unknown>" } ?: "Unknown artist",
                         album = c.getString(albumCol) ?: "Unknown album",
                         albumId = c.getLong(albumIdCol),
-                        durationMs = c.getLong(durationCol),
+                        durationMs = duration,
                         trackNumber = rawTrack % 1000,
                         discNumber = rawTrack / 1000,
-                        mimeType = c.getString(mimeCol) ?: ""
+                        mimeType = mime
                     )
                 }
             }
@@ -89,6 +128,26 @@ class MusicLibrary(private val context: Context) {
             Log.w(TAG, "No permission to read the music library", e)
         }
         return tracks.sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, { it.discNumber }, { it.trackNumber }))
+    }
+
+    private fun headerDurationMs(uri: Uri): Long? = try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+            FileInputStream(pfd.fileDescriptor).use { input ->
+                val channel = input.channel
+                Mp4Duration.durationMs(channel.size()) { offset, length ->
+                    val buffer = java.nio.ByteBuffer.allocate(length)
+                    var got = 0
+                    while (buffer.hasRemaining()) {
+                        val n = channel.read(buffer, offset + got)
+                        if (n < 0) break
+                        got += n
+                    }
+                    buffer.array().copyOf(got)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        null
     }
 
     companion object {

@@ -5,6 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
+import java.util.concurrent.atomic.AtomicReference
 
 /** Supplies the OAuth access token; [forceRefresh] is true after Drive answered 401. */
 fun interface DriveTokenProvider {
@@ -29,9 +30,23 @@ class DriveByteSource(
 ) : RemoteByteSource {
 
     @Volatile private var closed = false
-    @Volatile private var inFlight: HttpURLConnection? = null
+    @Volatile private var readAborted = false
+    private val inFlight = AtomicReference<HttpURLConnection?>(null)
 
     override fun size(): Long = sizeBytes
+
+    /**
+     * Non-destructively aborts only the currently executing in-flight HTTP Range request
+     * without permanently marking this byte source as closed.
+     * Subsequent readAt() calls succeed immediately after a seek.
+     */
+    fun abortInFlightRead() {
+        readAborted = true
+        val conn = inFlight.getAndSet(null)
+        try {
+            conn?.disconnect()
+        } catch (_: Exception) {}
+    }
 
     override fun readAt(offset: Long, dst: ByteBuffer): Int {
         if (closed) return -1
@@ -40,15 +55,17 @@ class DriveByteSource(
         val length = minOf(dst.remaining().toLong(), sizeBytes - offset).toInt()
         if (length == 0) return 0
 
+        readAborted = false
         val start = dst.position()
         var refreshToken = false
         for (attempt in 0 until maxAttempts) {
             dst.position(start)                 // a failed attempt may have written part of the range
             if (attempt > 0 && !pause(backoffMs shl (attempt - 1))) return -1
-            if (closed) return -1
+            if (closed || readAborted) return -1
             val outcome = try {
                 request(offset, length, dst, refreshToken)
             } catch (e: IOException) {
+                if (closed || readAborted) return -1
                 Outcome.RETRY
             }
             when (outcome) {
@@ -65,6 +82,7 @@ class DriveByteSource(
     private enum class Outcome { DONE, EOF, REFRESH_TOKEN, RETRY, FAIL }
 
     private fun request(offset: Long, length: Int, dst: ByteBuffer, refreshToken: Boolean): Outcome {
+        if (closed || readAborted) return Outcome.FAIL
         val token = tokens.token(refreshToken) ?: return Outcome.FAIL
         val connection = (URL("$apiBase/files/$fileId?alt=media&supportsAllDrives=true").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -74,7 +92,7 @@ class DriveByteSource(
             readTimeout = 15000
             instanceFollowRedirects = true
         }
-        inFlight = connection
+        inFlight.set(connection)
         try {
             when (val code = connection.responseCode) {
                 206 -> Unit
@@ -90,6 +108,7 @@ class DriveByteSource(
             try {
                 val channel = Channels.newChannel(connection.inputStream)
                 while (dst.hasRemaining()) {
+                    if (readAborted || closed) break
                     if (channel.read(dst) < 0) break
                 }
             } finally {
@@ -98,7 +117,7 @@ class DriveByteSource(
             // A body shorter than the range means the connection dropped, not that the file ended.
             return if (dst.position() == end) Outcome.DONE else Outcome.RETRY
         } finally {
-            inFlight = null
+            inFlight.compareAndSet(connection, null)
             connection.disconnect()
         }
     }
@@ -118,6 +137,6 @@ class DriveByteSource(
 
     override fun close() {
         closed = true
-        inFlight?.disconnect()     // unblocks a read in progress
+        inFlight.getAndSet(null)?.disconnect()     // unblocks a read in progress
     }
 }

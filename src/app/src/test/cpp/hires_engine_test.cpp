@@ -3,14 +3,19 @@
 // the receipt, events and source ownership. Build: see tests/host or run_engine_host_test.sh.
 #include <fcntl.h>
 #include <unistd.h>
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 #include <vector>
 #include "HiresCoreInternal.hpp"
 #include "PlaybackEngine.hpp"
+#include "fake_usb_dac.hpp"
 #include "hires_core.h"
 
 using Audiophile::Core::ManualOutput;
@@ -70,7 +75,7 @@ Wav MakeWav(uint32_t rate, uint16_t channels, uint16_t bits, size_t frames, uint
 // hrc_byte_source_callbacks over a byte vector, counting release() calls.
 struct MemFile {
     const std::vector<uint8_t>* bytes;
-    int* releases;
+    std::atomic<int>* releases;
 };
 int64_t MemSize(void* user) { return static_cast<int64_t>(static_cast<MemFile*>(user)->bytes->size()); }
 int64_t MemRead(void* user, uint64_t offset, void* dst, size_t n) {
@@ -87,7 +92,7 @@ void MemRelease(void* user) {
 }
 const hrc_byte_source_callbacks kMemCallbacks{MemSize, MemRead, MemRelease};
 
-hrc_source SourceFor(const Wav& w, uint64_t trackId, int* releases) {
+hrc_source SourceFor(const Wav& w, uint64_t trackId, std::atomic<int>* releases) {
     hrc_source s{};
     s.struct_size = sizeof(s);
     s.kind = HRC_SOURCE_CALLBACKS;
@@ -124,7 +129,8 @@ std::vector<std::vector<uint8_t>> PlayToEnd(hrc_engine* e, ManualOutput* out, st
     std::vector<std::vector<uint8_t>> segments(1);
     int opens = out->Opens();
     uint8_t buffer[512 * 2 * 8];
-    for (int idle = 0; idle < 4000; ++idle) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);   // slow under TSan
+    while (std::chrono::steady_clock::now() < deadline) {
         if (out->Opens() != opens) {
             opens = out->Opens();
             segments.emplace_back();
@@ -134,6 +140,7 @@ std::vector<std::vector<uint8_t>> PlayToEnd(hrc_engine* e, ManualOutput* out, st
             const auto& req = out->LastRequest();
             const size_t frameBytes = (req.format == HRC_SAMPLE_S16 ? 2u : req.format == HRC_SAMPLE_S24 ? 3u : 4u) * 2u;
             if (out->Pull(buffer, 512)) segments.back().insert(segments.back().end(), buffer, buffer + 512 * frameBytes);
+            else Sleep(1);   // the decoder has not caught up yet; do not spin the clock away
         } else {
             Sleep(1);
         }
@@ -180,7 +187,7 @@ void TestBitExactAndReceipt() {
     ManualOutput* out = nullptr;
     hrc_engine* e = NewEngine(out);
     const Wav w = MakeWav(44100, 2, 16, 70000, 1);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_source s = SourceFor(w, 11, &releases);
     Check(hrc_open(e, &s) == HRC_OK, "open WAV through callbacks");
     SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
@@ -221,7 +228,7 @@ void TestGaplessAndFloatOutput() {
     hrc_engine* e = NewEngine(out);
     const Wav a = MakeWav(48000, 2, 24, 40000, 2);
     const Wav b = MakeWav(48000, 2, 24, 30000, 3);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_source sa = SourceFor(a, 1, &releases);
     hrc_source sb = SourceFor(b, 2, &releases);
     Check(hrc_open(e, &sa) == HRC_OK && hrc_queue_next(e, &sb) == HRC_OK, "open + queue");
@@ -261,7 +268,7 @@ void TestReopenAtFormatChange() {
     hrc_engine* e = NewEngine(out);
     const Wav a = MakeWav(44100, 2, 16, 20000, 4);
     const Wav b = MakeWav(96000, 2, 24, 25000, 5);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_source sa = SourceFor(a, 1, &releases);
     hrc_source sb = SourceFor(b, 2, &releases);
     hrc_open(e, &sa);
@@ -290,7 +297,7 @@ void TestSeekAndFixedFormatStop() {
     ManualOutput* out = nullptr;
     hrc_engine* e = NewEngine(out);
     const Wav a = MakeWav(44100, 2, 16, 50000, 6);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_source sa = SourceFor(a, 7, &releases);
     hrc_open(e, &sa);
     Check(hrc_seek_frames(e, 12345) == HRC_OK, "seek");
@@ -314,7 +321,7 @@ void TestDspChangesReceipt() {
     ManualOutput* out = output.get();
     PlaybackEngine engine(std::move(output));
     const Wav a = MakeWav(44100, 2, 16, 40000, 8);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_result err = HRC_OK;
     auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&a.file, &releases}, 9, err);
     Check(err == HRC_OK && engine.Open(std::move(track)) == HRC_OK, "open (C++)");
@@ -341,11 +348,159 @@ void TestDspChangesReceipt() {
     Check(mismatchEvent, "RECEIPT_MISMATCH event");
 }
 
+void TestDspChainStages() {
+    using Audiophile::Core::PlaybackEngine;
+    using Audiophile::Core::TrackSource;
+    auto run = [](bool chainOn, hrc_telemetry& t) {
+        auto output = std::make_unique<ManualOutput>();
+        ManualOutput* out = output.get();
+        PlaybackEngine engine(std::move(output));
+        const Wav a = MakeWav(44100, 2, 16, 40000, 8);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&a.file, &releases}, 9, err);
+        Check(err == HRC_OK && engine.Open(std::move(track)) == HRC_OK, "open (C++)");
+        Audiophile::DSP::DspSettings s;
+        s.tubeEnabled = chainOn;
+        s.crossfeedEnabled = chainOn;
+        s.limiterEnabled = chainOn;
+        s.outputGainDb = chainOn ? -3.0 : 0.0;
+        engine.SetDsp(s);
+        Sleep(50);
+        engine.Play();
+        uint8_t buf[512 * 2 * 8];
+        for (int i = 0; i < 200 && engine.GetState() != PlaybackEngine::State::Ended; ++i) out->Pull(buf, 512);
+        t = hrc_telemetry{};
+        t.struct_size = sizeof(t);
+        engine.ReadTelemetry(t);
+    };
+    hrc_telemetry on{}, off{};
+    run(true, on);
+    Check(on.stages[HRC_STAGE_NONLINEAR].oversample_factor == 8, "44.1 kHz nonlinear block runs 8x");
+    Check(on.stages[HRC_STAGE_NONLINEAR].latency_frames > 0, "oversampler reports its latency");
+    Check(!(on.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED) && !(on.stages[HRC_STAGE_SPATIAL].flags & HRC_STAGE_BYPASSED) &&
+              !(on.stages[HRC_STAGE_OUTPUT].flags & HRC_STAGE_BYPASSED),
+          "tube, crossfeed and output stage report active");
+    Check(on.stages[HRC_STAGE_LINEAR_STYLE].flags & HRC_STAGE_BYPASSED, "untouched stages stay bypassed");
+    Check(on.receipt.first_mismatch_frame >= 0 && on.receipt.grade == HRC_GRADE_BEST_EFFORT, "DSP chain breaks the receipt");
+    run(false, off);
+    Check(off.stages[HRC_STAGE_NONLINEAR].oversample_factor == 1 && (off.stages[HRC_STAGE_NONLINEAR].flags & HRC_STAGE_BYPASSED),
+          "block skipped with all nonlinear stages off");
+    Check(off.receipt.first_mismatch_frame == -1 && off.receipt.frames_compared > 0, "all stages off: bit-exact, receipt matches");
+}
+
+// Output B end to end: the engine plays through the usbfs output into a simulated DAC; the DAC receives the
+// file's own samples, the receipt is VERIFIED, and leaving Output B hands the DAC back.
+void TestOutputB() {
+    using Audiophile::Core::PlaybackEngine;
+    using Audiophile::Core::TrackSource;
+    using Audiophile::Test::FakeDacConfig;
+    using Audiophile::Test::FakeUsbDac;
+    FakeDacConfig dc;
+    dc.rate = 44100;
+    dc.realtime = true;
+    dc.deviceRatePpm = 150.0;
+    auto make = [&](ManualOutput*& a, FakeUsbDac*& dac, std::unique_ptr<PlaybackEngine>& engine) {
+        auto output = std::make_unique<ManualOutput>();
+        a = output.get();
+        engine = std::make_unique<PlaybackEngine>(std::move(output));
+        engine->SetUsbOutputFactory([&dac, dc](int fd, int iface) -> std::unique_ptr<Audiophile::Core::AudioOutput> {
+            Check(fd == 7 && iface == -1, "factory gets the descriptor and interface");
+            auto d = std::make_unique<FakeUsbDac>(dc);
+            dac = d.get();
+            return std::make_unique<Audiophile::Core::UsbExclusiveOutput>(std::move(d), iface, 0);
+        });
+    };
+    hrc_output_config b{};
+    b.struct_size = sizeof(b);
+    b.kind = HRC_OUTPUT_B;
+    b.usb_fd = 7;
+    b.usb_interface = -1;
+    {
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        Check(engine->SetOutput(b) == HRC_OK, "select Output B before any track");
+        const Wav w = MakeWav(44100, 2, 16, 44100, 21);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 21, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open on Output B");
+        Check(dac != nullptr && dac->ActiveAlt() == 1 && dac->CurrentRate() == 44100, "16-bit alternate at 44.1 kHz selected");
+        Sleep(50);
+        engine->Play();
+        for (int i = 0; i < 400 && engine->GetState() != PlaybackEngine::State::Ended; ++i) Sleep(10);
+        Sleep(150);   // let the pump drain the last packets
+        const auto got = dac->Captured();
+        const auto at = std::search(got.begin(), got.end(), w.pcm.begin(), w.pcm.end());
+        Check(at != got.end(), "the DAC received the file's samples byte for byte");
+        bool silence = true;
+        for (auto it = got.begin(); it != at; ++it) silence &= *it == 0;
+        Check(silence, "only silence before the track");
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_B && t.output.backend == HRC_BACKEND_USB_EXCLUSIVE, "telemetry: Output B on usbfs");
+        Check(t.receipt.first_mismatch_frame == -1 && t.receipt.frames_compared == 44100 && t.receipt.grade == HRC_GRADE_VERIFIED,
+              "receipt VERIFIED");
+        Check(dac->Underruns() == 0 && dac->Overruns() == 0, "no DAC FIFO underrun or overrun");
+        hrc_output_config back{};
+        back.struct_size = sizeof(back);
+        back.kind = HRC_OUTPUT_A;
+        Check(engine->SetOutput(back) == HRC_OK, "back to Output A");
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_A && a->Opens() >= 1, "Output A took over");
+    }
+    {   // The DAC is unplugged while playing: the engine falls back to Output A and keeps going.
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        Check(engine->SetOutput(b) == HRC_OK, "select Output B");
+        const Wav w = MakeWav(44100, 2, 16, 4 * 44100, 22);
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 22, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open");
+        Sleep(50);
+        engine->Play();
+        Sleep(200);
+        const int opensBefore = a->Opens();
+        dac->Unplug();
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        for (int i = 0; i < 300; ++i) {
+            engine->ReadTelemetry(t);
+            if (t.output.kind == HRC_OUTPUT_A && a->Opens() > opensBefore) break;
+            Sleep(10);
+        }
+        Check(t.output.kind == HRC_OUTPUT_A && a->Opens() > opensBefore, "unplugging the DAC falls back to Output A");
+        Check(a->Running(), "and playback continues there");
+    }
+    {   // A DAC that refuses the stream: selecting it reports failure and leaves Output A working.
+        ManualOutput* a = nullptr;
+        FakeUsbDac* dac = nullptr;
+        std::unique_ptr<PlaybackEngine> engine;
+        make(a, dac, engine);
+        const Wav w = MakeWav(22050, 2, 16, 20000, 23);   // 22.05 kHz: the DAC does not offer it
+        std::atomic<int> releases{0};
+        hrc_result err = HRC_OK;
+        auto track = TrackSource::FromCallbacks(kMemCallbacks, new MemFile{&w.file, &releases}, 23, err);
+        Check(err == HRC_OK && engine->Open(std::move(track)) == HRC_OK, "open on Output A");
+        Check(engine->SetOutput(b) == HRC_E_OUTPUT_FAILED, "Output B refuses an unsupported rate");
+        hrc_telemetry t{};
+        t.struct_size = sizeof(t);
+        engine->ReadTelemetry(t);
+        Check(t.output.kind == HRC_OUTPUT_A, "still on Output A");
+    }
+}
+
 void TestErrorsAndOwnership() {
     ManualOutput* out = nullptr;
     hrc_engine* e = NewEngine(out);
     const std::vector<uint8_t> junk(1000, 0x5A);
-    int releases = 0;
+    std::atomic<int> releases{0};
     hrc_source s{};
     s.struct_size = sizeof(s);
     s.kind = HRC_SOURCE_CALLBACKS;
@@ -358,7 +513,8 @@ void TestErrorsAndOwnership() {
     hrc_output_config c{};
     c.struct_size = sizeof(c);
     c.kind = HRC_OUTPUT_B;
-    Check(hrc_set_output(e, &c) == HRC_E_NOT_BUILT, "Output B is not built");
+    c.usb_fd = -1;
+    Check(hrc_set_output(e, &c) == HRC_E_INVALID_ARG, "Output B needs a USB file descriptor");
     c.kind = HRC_OUTPUT_A;
     c.sample_rate = 48000;
     Check(hrc_set_output(e, &c) == HRC_E_UNSUPPORTED, "a forced rate needs the resampler, not built");
@@ -418,17 +574,408 @@ void TestFile(const char* path, const char* rawPath, const char* expectDecoder) 
                 static_cast<unsigned>(t.source.valid_bits), t.receipt.grade);
     hrc_engine_destroy(e);
 }
+
+// The legacy JNI path on the shared mixer: ENCODING_DEFAULT makes the output follow the source
+// (integer for integer files, not float), and a mixer that refuses the integer format gets float.
+void TestLegacySharedFollowsSource() {
+    using Audiophile::Core::PlaybackEngine;
+    const Wav a = MakeWav(48000, 2, 24, 30000, 9);
+    char path[] = "/tmp/hrc_legacy_XXXXXX";
+    const int fd = mkstemp(path);
+    Check(fd >= 0 && write(fd, a.file.data(), a.file.size()) == static_cast<ssize_t>(a.file.size()), "temp file");
+    unlink(path);
+    auto output = std::make_unique<ManualOutput>();
+    ManualOutput* out = output.get();
+    {
+        PlaybackEngine engine(std::move(output));
+        engine.SetOutputFormat(1 /* AudioFormat.ENCODING_DEFAULT */, false);
+        Check(engine.Open(fd), "legacy open");
+        Check(out->LastRequest().format == HRC_SAMPLE_S24 && !out->LastRequest().bitPerfect, "shared output opens in the source's 24-bit format");
+        Check(engine.GetOutputEncoding() == 21, "reports ENCODING_PCM_24BIT_PACKED");
+        Sleep(50);
+        engine.Play();
+        std::vector<uint8_t> got;
+        uint8_t buffer[512 * 2 * 4];
+        for (int i = 0; i < 4000 && got.size() < a.pcm.size(); ++i) {
+            if (out->Pull(buffer, 512)) got.insert(got.end(), buffer, buffer + 512 * 6);
+            else Sleep(1);
+        }
+        size_t at = 0;
+        Check(StartsWith(got, a.pcm, at), "shared integer output is the file's own samples");
+
+        const int opens = out->Opens();
+        engine.SetOutputFormat(1, false);
+        Check(out->Opens() == opens, "the same output config again keeps the stream");
+        out->RefuseFormat(HRC_SAMPLE_S24);
+        engine.SetOutputFormat(2, false);
+        engine.SetOutputFormat(1, false);
+        Check(out->LastRequest().format == HRC_SAMPLE_F32 && engine.GetOutputEncoding() == 4, "falls back to float when the mixer refuses 24-bit");
+        engine.SetOutputFormat(21, true);
+        Check(out->LastRequest().format == HRC_SAMPLE_S24 && out->LastRequest().bitPerfect, "no float fallback on a bit-perfect request");
+    }
+}
+// ---- Crossfade ---------------------------------------------------------------------------------
+
+void SetTransition(hrc_engine* e, bool on, uint32_t ms, int32_t curve) {
+    hrc_transition_config c{};
+    c.struct_size = sizeof(c);
+    c.crossfade_enabled = on ? 1u : 0u;
+    c.crossfade_ms = ms;
+    c.curve = curve;
+    Check(hrc_set_transition(e, &c) == HRC_OK, "set_transition");
+}
+
+int16_t S16At(const std::vector<uint8_t>& v, size_t frame, int channel) {
+    const size_t i = (frame * 2 + static_cast<size_t>(channel)) * 2;
+    return static_cast<int16_t>(static_cast<uint16_t>(v[i]) | static_cast<uint16_t>(v[i + 1]) << 8);
+}
+
+void TestFadeCurves() {
+    using namespace Audiophile::Core;
+    for (const FadeCurve c : {FadeCurve::Linear, FadeCurve::EqualPower, FadeCurve::Logarithmic}) {
+        const FadeGains start = FadeGainsAt(c, 0.0), end = FadeGainsAt(c, 1.0);
+        Check(std::fabs(start.out - 1.0) < 1e-12 && std::fabs(start.in) < 1e-12, "fade starts on the outgoing track");
+        Check(std::fabs(end.out) < 1e-12 && std::fabs(end.in - 1.0) < 1e-12, "fade ends on the incoming track");
+        double lastOut = 2.0, lastIn = -1.0;
+        bool monotonic = true;
+        for (int i = 0; i <= 100; ++i) {
+            const FadeGains g = FadeGainsAt(c, i / 100.0);
+            monotonic = monotonic && g.out <= lastOut + 1e-12 && g.in >= lastIn - 1e-12;
+            lastOut = g.out;
+            lastIn = g.in;
+        }
+        Check(monotonic, "outgoing only falls, incoming only rises");
+        // Symmetric: the two tracks swap roles around the middle.
+        const FadeGains m = FadeGainsAt(c, 0.5);
+        Check(std::fabs(m.out - m.in) < 1e-12, "equal at the middle");
+    }
+    Check(std::fabs(FadeGainsAt(FadeCurve::Linear, 0.5).out - 0.5) < 1e-12, "linear: -6 dB each at the middle");
+    const FadeGains p = FadeGainsAt(FadeCurve::EqualPower, 0.3);
+    Check(std::fabs(p.out * p.out + p.in * p.in - 1.0) < 1e-12, "equal power: squares add to one");
+    const FadeGains l = FadeGainsAt(FadeCurve::Logarithmic, 0.5);
+    Check(l.out > 0.7 && l.out < 0.8, "log: the middle sits above the linear curve");
+    Check(FadeGainsAt(FadeCurve::Logarithmic, 0.1).out > FadeGainsAt(FadeCurve::Linear, 0.1).out, "log: the outgoing track holds longer");
+    Check(FadeGainsAt(FadeCurve::Linear, -3).out == 1.0 && FadeGainsAt(FadeCurve::Linear, 7).in == 1.0, "progress is clamped");
+}
+
+// Everything the output produced for A then B with a crossfade of `fade` frames between them.
+void CheckCrossfadeOutput(const std::vector<uint8_t>& out, const Wav& a, const Wav& b, size_t fade, int32_t curve,
+                          const char* label) {
+    using namespace Audiophile::Core;
+    char what[160];
+    const size_t expectFrames = a.frames + b.frames - fade;
+    std::snprintf(what, sizeof(what), "%s: the tracks overlap by exactly the fade (%zu frames)", label, expectFrames);
+    Check(out.size() >= expectFrames * 4 && AllZero(out, expectFrames * 4), what);
+    if (out.size() < expectFrames * 4) return;
+    std::snprintf(what, sizeof(what), "%s: before the fade the output is A's own samples", label);
+    Check(std::memcmp(out.data(), a.pcm.data(), (a.frames - fade) * 4) == 0, what);
+    std::snprintf(what, sizeof(what), "%s: after the fade the output is B's own samples", label);
+    Check(std::memcmp(out.data() + a.frames * 4, b.pcm.data() + fade * 4, (b.frames - fade) * 4) == 0, what);
+    int worst = 0;
+    for (size_t i = 0; i < fade; ++i) {
+        const FadeGains g = FadeGainsAt(static_cast<FadeCurve>(curve), (static_cast<double>(i) + 0.5) / static_cast<double>(fade));
+        for (int c = 0; c < 2; ++c) {
+            const double x = S16At(a.pcm, a.frames - fade + i, c) * g.out + S16At(b.pcm, i, c) * g.in;
+            const long want = std::lround(std::clamp(x, -32768.0, 32767.0));
+            worst = std::max(worst, static_cast<int>(std::labs(S16At(out, a.frames - fade + i, c) - want)));
+        }
+    }
+    std::snprintf(what, sizeof(what), "%s: the mix is the curve applied to both tracks (worst %d LSB)", label, worst);
+    Check(worst <= 2, what);   // rounding plus +-1 LSB of dither
+    bool changed = false;
+    for (size_t i = 0; i < fade && !changed; ++i) changed = S16At(out, a.frames - fade + i, 0) != S16At(a.pcm, a.frames - fade + i, 0);
+    std::snprintf(what, sizeof(what), "%s: the fade really changed the samples", label);
+    Check(changed, what);
+}
+
+void TestCrossfade() {
+    for (const int32_t curve : {HRC_FADE_LINEAR, HRC_FADE_EQUAL_POWER, HRC_FADE_LOGARITHMIC}) {
+        ManualOutput* out = nullptr;
+        hrc_engine* e = NewEngine(out);
+        SetTransition(e, true, 1000, curve);
+        const Wav a = MakeWav(48000, 2, 16, 100000, 21);
+        const Wav b = MakeWav(48000, 2, 16, 100000, 22);
+        std::atomic<int> releases{0};
+        hrc_source sa = SourceFor(a, 1, &releases);
+        hrc_source sb = SourceFor(b, 2, &releases);
+        Check(hrc_open(e, &sa) == HRC_OK && hrc_queue_next(e, &sb) == HRC_OK, "open + queue for a crossfade");
+        SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+        Sleep(80);
+        hrc_play(e);
+        std::vector<hrc_event> events;
+        auto segments = PlayToEnd(e, out, events);
+        Check(segments.size() == 1, "a crossfade keeps one stream open");
+        char label[32];
+        std::snprintf(label, sizeof(label), "curve %d", curve);
+        CheckCrossfadeOutput(segments[0], a, b, 48000, curve, label);
+        Check(Count(events, HRC_EVENT_CROSSFADE, 2) == 1, "CROSSFADE event names the incoming track");
+        for (const auto& ev : events) {
+            if (ev.type == HRC_EVENT_CROSSFADE) Check(ev.value == 48000, "CROSSFADE event carries the fade length");
+        }
+        Check(Count(events, HRC_EVENT_TRACK_STARTED, 2) == 1 && Count(events, HRC_EVENT_TRACK_STARTED, 1) == 1, "each track starts once");
+        Check(Count(events, HRC_EVENT_TRACK_ENDED, 1) == 1 && Count(events, HRC_EVENT_TRACK_ENDED, 2) == 1, "each track ends once");
+        Check(Count(events, HRC_EVENT_QUEUE_EMPTY) == 1 && Count(events, HRC_EVENT_UNDERRUN) == 0, "one end, no underrun");
+        const hrc_telemetry t = Read(e);
+        Check(t.receipt.track_id == 2 && t.receipt.window_start_frame == 48000 && t.receipt.frames_compared == 100000 - 48000,
+              "the receipt after the fade covers B's untouched audio alone");
+        Check(t.receipt.first_mismatch_frame == -1 && t.receipt.grade == HRC_GRADE_OS_CONFIRMED,
+              "and it is bit-exact again once the fade is over");
+        Check(t.position_frames == 100000, "position is B's, counted from its start");
+        hrc_engine_destroy(e);
+        Check(releases == 2, "both sources released once");
+    }
+}
+
+void TestCrossfadeOffAndPerTrackOverride() {
+    const Wav a = MakeWav(44100, 2, 16, 60000, 31);
+    const Wav b = MakeWav(44100, 2, 16, 60000, 32);
+    for (int variant = 0; variant < 3; ++variant) {
+        ManualOutput* out = nullptr;
+        hrc_engine* e = NewEngine(out);
+        SetTransition(e, variant != 0, 2000, HRC_FADE_EQUAL_POWER);   // 0: off
+        if (variant == 2) SetTransition(e, false, 2000, HRC_FADE_EQUAL_POWER);   // switched off again before playing
+        std::atomic<int> releases{0};
+        hrc_source sa = SourceFor(a, 1, &releases);
+        hrc_source sb = SourceFor(b, 2, &releases);
+        if (variant == 1) sb.flags = HRC_SOURCE_FLAG_NO_CROSSFADE;   // on, but this join stays gapless
+        hrc_open(e, &sa);
+        hrc_queue_next(e, &sb);
+        SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+        Sleep(60);
+        hrc_play(e);
+        std::vector<hrc_event> events;
+        auto segments = PlayToEnd(e, out, events);
+        size_t at = 0;
+        const char* what = variant == 0 ? "crossfade off" : variant == 1 ? "NO_CROSSFADE flag" : "crossfade switched off";
+        char text[96];
+        std::snprintf(text, sizeof(text), "%s: gapless and bit-exact, A then B", what);
+        Check(StartsWith(segments[0], a.pcm, at) && StartsWith(segments[0], b.pcm, at), text);
+        std::snprintf(text, sizeof(text), "%s: no crossfade event", what);
+        Check(Count(events, HRC_EVENT_CROSSFADE) == 0, text);
+        std::snprintf(text, sizeof(text), "%s: receipt matches over B", what);
+        hrc_telemetry t = Read(e);
+        for (int i = 0; i < 200 && t.receipt.frames_compared != 60000; ++i) {   // the merger runs on its own cadence
+            Sleep(10);
+            t = Read(e);
+        }
+        Check(t.receipt.frames_compared == 60000 && t.receipt.first_mismatch_frame == -1 && t.receipt.grade == HRC_GRADE_OS_CONFIRMED, text);
+        hrc_engine_destroy(e);
+    }
+}
+
+void TestCrossfadeLimits() {
+    using Audiophile::Core::PlaybackEngine;
+    ManualOutput* out = nullptr;
+    hrc_engine* e = NewEngine(out);
+    hrc_transition_config c{};
+    c.struct_size = sizeof(c);
+    c.crossfade_enabled = 1;
+    c.crossfade_ms = 4000;
+    c.curve = 9;
+    Check(hrc_set_transition(e, &c) == HRC_E_INVALID_ARG, "unknown curve rejected");
+    c.curve = HRC_FADE_LINEAR;
+    c.struct_size = 4;
+    Check(hrc_set_transition(e, &c) == HRC_E_STRUCT_SIZE, "short struct rejected");
+    Check(hrc_set_transition(nullptr, &c) == HRC_E_INVALID_ARG && hrc_set_transition(e, nullptr) == HRC_E_INVALID_ARG, "null arguments");
+    hrc_engine_destroy(e);
+
+    // A short incoming track gets a shorter fade (half its length), a long setting is clamped.
+    e = NewEngine(out);
+    SetTransition(e, true, 60000, HRC_FADE_LINEAR);   // clamped to 12 s: more than half of either track
+    const Wav a = MakeWav(48000, 2, 16, 120000, 41);
+    const Wav b = MakeWav(48000, 2, 16, 30000, 42);
+    std::atomic<int> releases{0};
+    hrc_source sa = SourceFor(a, 1, &releases);
+    hrc_source sb = SourceFor(b, 2, &releases);
+    hrc_open(e, &sa);
+    hrc_queue_next(e, &sb);
+    SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+    Sleep(60);
+    hrc_play(e);
+    std::vector<hrc_event> events;
+    auto segments = PlayToEnd(e, out, events);
+    CheckCrossfadeOutput(segments[0], a, b, 15000, HRC_FADE_LINEAR, "short incoming track");
+    hrc_engine_destroy(e);
+}
+
+void TestCrossfadeNeedsMatchingFormat() {
+    ManualOutput* out = nullptr;
+    hrc_engine* e = NewEngine(out);
+    SetTransition(e, true, 1000, HRC_FADE_EQUAL_POWER);
+    const Wav a = MakeWav(44100, 2, 16, 60000, 51);
+    const Wav b = MakeWav(96000, 2, 24, 40000, 52);
+    std::atomic<int> releases{0};
+    hrc_source sa = SourceFor(a, 1, &releases);
+    hrc_source sb = SourceFor(b, 2, &releases);
+    hrc_open(e, &sa);
+    hrc_queue_next(e, &sb);
+    SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+    Sleep(60);
+    hrc_play(e);
+    std::vector<hrc_event> events;
+    auto segments = PlayToEnd(e, out, events);
+    size_t at = 0;
+    Check(segments.size() >= 2 && StartsWith(segments.front(), a.pcm, at), "a different rate is not mixed: A plays whole and bit-exact");
+    at = 0;
+    Check(StartsWith(segments.back(), b.pcm, at), "B follows in its own stream, bit-exact");
+    Check(Count(events, HRC_EVENT_CROSSFADE) == 0 && Count(events, HRC_EVENT_OUTPUT_REOPENED, 2) == 1, "reopen, no crossfade");
+    hrc_engine_destroy(e);
+}
+
+// A seek while the decoder is already past the end of A (tail held, fade written) puts everything back.
+void TestCrossfadeSeek() {
+    ManualOutput* out = nullptr;
+    hrc_engine* e = NewEngine(out);
+    SetTransition(e, true, 1000, HRC_FADE_EQUAL_POWER);
+    const Wav a = MakeWav(48000, 2, 16, 100000, 61);
+    const Wav b = MakeWav(48000, 2, 16, 100000, 62);
+    std::atomic<int> releases{0};
+    hrc_source sa = SourceFor(a, 1, &releases);
+    hrc_source sb = SourceFor(b, 2, &releases);
+    hrc_open(e, &sa);
+    hrc_queue_next(e, &sb);
+    SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+    Sleep(150);   // the decoder runs ahead: A is decoded, the fade into B is written
+    hrc_play(e);
+    uint8_t buffer[512 * 2 * 8];
+    for (int i = 0; i < 20; ++i) out->Pull(buffer, 512);   // still well inside A
+    Check(hrc_seek_frames(e, 30000) == HRC_OK, "seek back into A while the fade is already queued");
+    Sleep(150);
+    std::vector<hrc_event> events;
+    auto segments = PlayToEnd(e, out, events);
+    // Everything pulled after the seek: A from 30000, the fade, B's remainder.
+    std::vector<uint8_t> after = segments[0];
+    const size_t expectFrames = (a.frames - 30000) + b.frames - 48000;
+    Check(after.size() >= expectFrames * 4 && AllZero(after, expectFrames * 4), "after the seek: A's rest, then B, overlapping by the fade");
+    Check(std::memcmp(after.data(), a.pcm.data() + 30000 * 4, (a.frames - 30000 - 48000) * 4) == 0, "playback resumed at the seek frame");
+    Check(std::memcmp(after.data() + (a.frames - 30000) * 4, b.pcm.data() + 48000 * 4, (b.frames - 48000) * 4) == 0,
+          "and B still arrives intact after the fade");
+    Check(Count(events, HRC_EVENT_CROSSFADE, 2) == 1, "one crossfade into B");
+    hrc_engine_destroy(e);
+    Check(releases == 2, "no source leaked or released twice");
+}
+
+// The queued track is decoded ahead of the boundary: replacing or clearing it meanwhile is safe.
+void TestQueueChangesWhilePrimed() {
+    ManualOutput* out = nullptr;
+    hrc_engine* e = NewEngine(out);
+    // A is longer than the ring (1,048,576 frames), so the decoder is parked on a full ring with B pre-decoded.
+    const Wav a = MakeWav(44100, 2, 16, 1300000, 71);
+    const Wav b = MakeWav(44100, 2, 16, 30000, 72);
+    const Wav c = MakeWav(44100, 2, 16, 30000, 73);
+    std::atomic<int> releases{0};
+    hrc_source sa = SourceFor(a, 1, &releases);
+    hrc_source sb = SourceFor(b, 2, &releases);
+    hrc_source sc = SourceFor(c, 3, &releases);
+    hrc_open(e, &sa);
+    hrc_queue_next(e, &sb);
+    SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+    Sleep(100);                       // B is pre-decoded by now
+    hrc_queue_next(e, &sc);           // replaced by C
+    Sleep(60);
+    Check(releases == 1, "the replaced, pre-decoded track is released");
+    hrc_play(e);
+    std::vector<hrc_event> events;
+    auto segments = PlayToEnd(e, out, events);
+    size_t at = 0;
+    Check(StartsWith(segments[0], a.pcm, at) && StartsWith(segments[0], c.pcm, at), "C follows A, not the stale B");
+    Check(Count(events, HRC_EVENT_TRACK_STARTED, 3) == 1 && Count(events, HRC_EVENT_TRACK_STARTED, 2) == 0, "events name C");
+    hrc_engine_destroy(e);
+    Check(releases == 3, "all three released once");
+
+    // Cleared while pre-decoded: the track after A does not exist, playback ends.
+    e = NewEngine(out);
+    releases = 0;
+    hrc_source sa2 = SourceFor(a, 1, &releases);
+    hrc_source sb2 = SourceFor(b, 2, &releases);
+    hrc_open(e, &sa2);
+    hrc_queue_next(e, &sb2);
+    SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+    Sleep(100);
+    hrc_clear_next(e);
+    Sleep(60);
+    Check(releases == 1, "the cleared, pre-decoded track is released");
+    hrc_play(e);
+    events.clear();
+    segments = PlayToEnd(e, out, events);
+    at = 0;
+    Check(StartsWith(segments[0], a.pcm, at) && AllZero(segments[0], at), "cleared: only A plays");
+    Check(Count(events, HRC_EVENT_TRACK_STARTED, 2) == 0, "the cleared track never starts");
+    hrc_engine_destroy(e);
+    Check(releases == 2, "cleared track released once");
+}
+
+
+// Real lossy files through the whole engine: the join between two copies has no encoder delay or
+// padding in it (gapless), and a crossfade overlaps them by exactly the fade.
+void TestGaplessFiles(const char* path, size_t frames) {
+    for (const bool crossfade : {false, true}) {
+        FILE* f = std::fopen(path, "rb");
+        Check(f != nullptr, "gapless fixture opens");
+        if (!f) return;
+        std::fclose(f);
+        ManualOutput* out = nullptr;
+        hrc_engine* e = NewEngine(out);
+        SetTransition(e, crossfade, 1000, HRC_FADE_LINEAR);
+        auto source = [&](uint64_t id) {
+            hrc_source s{};
+            s.struct_size = sizeof(s);
+            s.kind = HRC_SOURCE_FD;
+            s.track_id = id;
+            s.fd = ::open(path, O_RDONLY);
+            return s;
+        };
+        hrc_source a = source(1), b = source(2);
+        Check(hrc_open(e, &a) == HRC_OK && hrc_queue_next(e, &b) == HRC_OK, "open the same lossy file twice");
+        SetBitPerfect(e, HRC_SAMPLE_UNKNOWN);
+        Sleep(80);
+        hrc_play(e);
+        std::vector<hrc_event> events;
+        auto segments = PlayToEnd(e, out, events);
+        const auto& pcm = segments[0];
+        Check(Read(e).source.total_frames == frames, "the engine reports the music length, not the encoded length");
+        size_t last = pcm.size() / 8;   // float stereo: 8 bytes per frame
+        while (last > 0 && AllZero(std::vector<uint8_t>(pcm.begin() + static_cast<long>((last - 1) * 8), pcm.begin() + static_cast<long>(last * 8)), 0)) --last;
+        const size_t fade = crossfade ? 44100 : 0;   // the 1 s asked for (the track is longer than 2 s)
+        char text[120];
+        std::snprintf(text, sizeof(text), "%s: two copies play for exactly 2 x %zu%s frames, nothing in between (got %zu)", path,
+                      frames, crossfade ? " - fade" : "", last);
+        Check(last == 2 * frames - fade, text);
+        Check(Count(events, HRC_EVENT_CROSSFADE) == (crossfade ? 1u : 0u), "crossfade event only when asked");
+        Check(Count(events, HRC_EVENT_UNDERRUN) == 0, "no underrun");
+        hrc_engine_destroy(e);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     // Optional file cases: <file> <reference raw PCM> <decoder name prefix>, repeated.
-    for (int i = 1; i + 2 < argc; i += 3) TestFile(argv[i], argv[i + 1], argv[i + 2]);
+    // "--gapless <file> <frames>" runs the lossy-file gapless/crossfade check instead.
+    for (int i = 1; i + 2 < argc;) {
+        if (std::strcmp(argv[i], "--gapless") == 0) {
+            TestGaplessFiles(argv[i + 1], static_cast<size_t>(std::strtoull(argv[i + 2], nullptr, 10)));
+        } else {
+            TestFile(argv[i], argv[i + 1], argv[i + 2]);
+        }
+        i += 3;
+    }
     TestBitExactAndReceipt();
     TestGaplessAndFloatOutput();
     TestReopenAtFormatChange();
     TestSeekAndFixedFormatStop();
     TestDspChangesReceipt();
+    TestDspChainStages();
+    TestOutputB();
     TestErrorsAndOwnership();
+    TestLegacySharedFollowsSource();
+    TestFadeCurves();
+    TestCrossfade();
+    TestCrossfadeOffAndPerTrackOverride();
+    TestCrossfadeLimits();
+    TestCrossfadeNeedsMatchingFormat();
+    TestCrossfadeSeek();
+    TestQueueChangesWhilePrimed();
     if (g_failures == 0) std::printf("hires_engine_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
 }

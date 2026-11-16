@@ -40,7 +40,10 @@ struct OutputCheckpoint {
     uint32_t reserved;
 };
 
-enum class WindowReason : uint32_t { Open = 0, Seek = 1, Gapless = 2, Reopen = 3 };
+// Crossfade: the stretch where two tracks are mixed (the new track is the one playing). Continue:
+// the same track goes on after that stretch, as a new window so the receipt of the untouched
+// audio after the fade is judged on its own.
+enum class WindowReason : uint32_t { Open = 0, Seek = 1, Gapless = 2, Reopen = 3, Crossfade = 4, Continue = 5 };
 
 struct DecoderRecord {
     enum Kind : uint32_t { WindowStart = 0, Checkpoint = 1 } kind;
@@ -50,6 +53,7 @@ struct DecoderRecord {
     uint64_t hash;              // Checkpoint
     uint32_t final;             // Checkpoint
     uint32_t reserved;
+    uint64_t mixFrames;         // WindowStart, Crossfade: frames of this window that are mixed audio
     hrc_source_telemetry source;  // WindowStart
 };
 

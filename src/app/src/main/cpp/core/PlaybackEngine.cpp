@@ -1,4 +1,7 @@
 #include "PlaybackEngine.hpp"
+#if defined(__linux__)
+#include "LinuxUsbfsIo.hpp"
+#endif
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -11,6 +14,7 @@
 #include "../decoders/FlacDecoder.hpp"
 #include "../decoders/ReadAheadSource.hpp"
 #include "../decoders/WavDecoder.hpp"
+#include "ExynosThreadGovernor.hpp"
 #include "Log.hpp"
 #include "PcmConvert.hpp"
 #include "PcmEncoding.hpp"
@@ -29,6 +33,34 @@ namespace Audiophile::Core {
 namespace {
 constexpr const char* kTag = "PlaybackEngine";
 constexpr auto kWait = std::chrono::milliseconds(5);
+
+inline float SampleToFloat(const uint8_t* p, hrc_sample_format f) noexcept {
+    switch (f) {
+        case HRC_SAMPLE_F32: {
+            float v;
+            std::memcpy(&v, p, 4);
+            return v;
+        }
+        case HRC_SAMPLE_S16:
+            return static_cast<float>(detail::LoadInt(p, f)) * (1.0f / 2147483648.0f);
+        case HRC_SAMPLE_S24:
+            return static_cast<float>(detail::LoadInt(p, f)) * (1.0f / 2147483648.0f);
+        case HRC_SAMPLE_S32:
+            return static_cast<float>(detail::LoadInt(p, f)) * (1.0f / 2147483648.0f);
+        default:
+            return 0.0f;
+    }
+}
+
+inline void UpdateMaxAtomic(std::atomic<float>& atom, float val) noexcept {
+    float cur = atom.load(std::memory_order_relaxed);
+    while (val > cur && !atom.compare_exchange_weak(cur, val, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
+
+inline void AddAtomic(std::atomic<double>& atom, double val) noexcept {
+    double cur = atom.load(std::memory_order_relaxed);
+    while (!atom.compare_exchange_weak(cur, cur + val, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
 
 int64_t NowNs() noexcept {
     timespec ts{};
@@ -282,9 +314,17 @@ uint64_t TrackSource::PositionFrames() const noexcept {
 // ---------------------------------------------------------------------------
 
 PlaybackEngine::PlaybackEngine(std::unique_ptr<AudioOutput> output)
-    : output_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    : outputA_(std::move(output)), ring_(std::make_unique<Ring>()) {
+    output_ = outputA_.get();
+#if defined(__linux__)
+    usbFactory_ = [](int fd, int iface) -> std::unique_ptr<AudioOutput> {
+        return std::make_unique<UsbExclusiveOutput>(std::make_unique<Drivers::LinuxUsbfsIo>(fd), iface,
+                                                    ExynosThreadGovernor::CLUSTER_1_USB_PUMP);
+    };
+#endif
     merger_.snapshot.receipt.hash_algorithm = HRC_HASH_FNV1A64_CANONICAL;
     merger_.snapshot.receipt.first_mismatch_frame = -1;
+    PublishDspStages();
 }
 
 #if HIRES_HAVE_MEDIACODEC
@@ -311,7 +351,7 @@ void PlaybackEngine::PublishPlayingInfo(const TrackSource& source) {
 
 OutputRequest PlaybackEngine::RequestFor(const PcmFormat& source) const {
     OutputRequest r;
-    r.sampleRate = source.sampleRate;  // no engine resampler yet, so the output always runs at the source rate
+    r.sampleRate = outRateConfig_ != 0 ? static_cast<int32_t>(outRateConfig_) : source.sampleRate;
     r.channels = kOutputChannels;
     if (outFormatConfig_ != HRC_SAMPLE_UNKNOWN) {
         r.format = outFormatConfig_;
@@ -323,24 +363,57 @@ OutputRequest PlaybackEngine::RequestFor(const PcmFormat& source) const {
     return r;
 }
 
-bool PlaybackEngine::OpenOutputLocked() {
+bool PlaybackEngine::OpenOutputLocked(bool preserveBitPerfectRequest) {
     if (outputOpen_) {
         output_->Close();
         outputOpen_ = false;
     }
-    const OutputRequest request = RequestFor(ringFormat_);
+    OutputRequest request = RequestFor(ringFormat_);
+    if (preserveBitPerfectRequest) {
+        request.bitPerfect = true;
+    }
     OutputInfo info{};
-    const bool ok = output_->Open(request, this, info) && info.channels == kOutputChannels &&
-                    SampleBytes(info.format) != 0 && info.format != HRC_SAMPLE_F64;
+    auto opened = [&] {
+        return output_->Open(request, this, info) && info.channels == kOutputChannels &&
+               SampleBytes(info.format) != 0 && info.format != HRC_SAMPLE_F64;
+    };
+    bool ok = opened();
+    if (!ok && !request.bitPerfect && request.format != HRC_SAMPLE_F32) {
+        // Some shared-mixer paths take only float. The conversion to it is lossless for 16 and
+        // 24-bit sources, and the mixer would convert to float anyway.
+        HRC_LOGI(kTag, "Shared output refused sample format %d, opening in float", request.format);
+        output_->Close();
+        request.format = HRC_SAMPLE_F32;
+        ok = opened();
+    }
     if (!ok) {
         output_->Close();
+        resampler_.Reset();
+        resamplerActive_.store(false, std::memory_order_release);
     } else {
         outInfo_ = info;
         outFormat_ = info.format;
         outChannels_ = info.channels;
         outRate_.store(info.sampleRate, std::memory_order_relaxed);
         outFormatAtomic_.store(info.format, std::memory_order_relaxed);
+        std::strncpy(outDeviceName_, info.device_name, sizeof(outDeviceName_) - 1);
         outputOpen_ = true;
+
+        if (ringFormat_.sampleRate > 0 && info.sampleRate > 0 && info.sampleRate != ringFormat_.sampleRate) {
+            resampler_.Configure(ringFormat_.sampleRate, info.sampleRate, kOutputChannels);
+            resamplerActive_.store(resampler_.IsActive(), std::memory_order_release);
+            resampleFifoHead_ = 0;
+            resampleFifoCount_ = 0;
+            if (resampler_.IsActive()) {
+                info.flags |= HRC_OUTPUT_STATE_ENGINE_RESAMPLING;
+                outInfo_.flags |= HRC_OUTPUT_STATE_ENGINE_RESAMPLING;
+            }
+        } else {
+            resampler_.Reset();
+            resamplerActive_.store(false, std::memory_order_release);
+            resampleFifoHead_ = 0;
+            resampleFifoCount_ = 0;
+        }
     }
 
     // Publish for the telemetry reader (seqlock; writers hold streamMutex_).
@@ -375,6 +448,29 @@ void PlaybackEngine::ResetRingLocked(const PcmFormat& format, uint64_t trackStar
     rtHash_.Reset();
     rtEnded_.store(false, std::memory_order_relaxed);
     decoderDone_.store(false, std::memory_order_relaxed);
+    boundaryContinues_.store(false, std::memory_order_relaxed);
+    boundaryMixes_.store(false, std::memory_order_relaxed);
+    mixing_.store(false, std::memory_order_relaxed);
+
+    resampleFifoHead_ = 0;
+    resampleFifoCount_ = 0;
+    for (int i = 0; i < HRC_MAX_CHANNELS; ++i) {
+        std::memset(tpHistory_[i], 0, sizeof(tpHistory_[i]));
+        tpHead_[i] = 0;
+    }
+    if (outputOpen_ && outInfo_.sampleRate > 0 && format.sampleRate > 0 && outInfo_.sampleRate != format.sampleRate) {
+        resampler_.Configure(format.sampleRate, outInfo_.sampleRate, kOutputChannels);
+        resamplerActive_.store(resampler_.IsActive(), std::memory_order_release);
+        if (resampler_.IsActive()) {
+            outInfo_.flags |= HRC_OUTPUT_STATE_ENGINE_RESAMPLING;
+            outView_[kFlags].store(static_cast<int32_t>(outInfo_.flags), std::memory_order_relaxed);
+        }
+    } else {
+        resampler_.Reset();
+        resamplerActive_.store(false, std::memory_order_release);
+        outInfo_.flags &= ~HRC_OUTPUT_STATE_ENGINE_RESAMPLING;
+        outView_[kFlags].store(static_cast<int32_t>(outInfo_.flags), std::memory_order_relaxed);
+    }
 }
 
 hrc_result PlaybackEngine::Open(std::unique_ptr<TrackSource> source) {
@@ -384,9 +480,16 @@ hrc_result PlaybackEngine::Open(std::unique_ptr<TrackSource> source) {
     PublishPlayingInfo(*current_);
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
-        eq_.SetSampleRate(current_->format.sampleRate);
+        eqSlots_[0].SetSampleRate(current_->format.sampleRate);
+        eqSlots_[1].SetSampleRate(current_->format.sampleRate);
+        dspSlots_[0].SetSampleRate(current_->format.sampleRate);
+        dspSlots_[1].SetSampleRate(current_->format.sampleRate);
+        PublishDspStages(activeDspSlot_.load(std::memory_order_relaxed));
     }
-    eq_.RequestReset();
+    eqSlots_[0].RequestReset();
+    eqSlots_[1].RequestReset();
+    dspSlots_[0].RequestReset();
+    dspSlots_[1].RequestReset();
     rtUnderruns_ = 0;  // the callback is not running
     {
         std::lock_guard<std::mutex> lock(streamMutex_);
@@ -406,12 +509,23 @@ hrc_result PlaybackEngine::SetNext(std::unique_ptr<TrackSource> source) {
     if (!source) return HRC_E_INVALID_ARG;
     std::lock_guard<std::mutex> lock(sourceMutex_);
     next_ = std::move(source);
+    ++nextVersion_;  // whatever the decoder thread had pre-decoded is stale now
     return HRC_OK;
 }
 
 void PlaybackEngine::ClearNext() {
     std::lock_guard<std::mutex> lock(sourceMutex_);
     next_.reset();
+    ++nextVersion_;
+}
+
+hrc_result PlaybackEngine::SetTransition(const hrc_transition_config& config) {
+    if (config.struct_size < sizeof(hrc_transition_config)) return HRC_E_STRUCT_SIZE;
+    if (config.curve < HRC_FADE_LINEAR || config.curve > HRC_FADE_LOGARITHMIC) return HRC_E_INVALID_ARG;
+    xfMs_.store(std::clamp(config.crossfade_ms, HRC_CROSSFADE_MIN_MS, HRC_CROSSFADE_MAX_MS), std::memory_order_relaxed);
+    xfCurve_.store(config.curve, std::memory_order_relaxed);
+    xfEnabled_.store(config.crossfade_enabled != 0, std::memory_order_release);
+    return HRC_OK;
 }
 
 hrc_result PlaybackEngine::Play() {
@@ -457,12 +571,14 @@ hrc_result PlaybackEngine::SeekToFrame(uint64_t frame) {
     }
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
-        if (boundaryFrame_.load() >= 0 && retired_) {
-            // The decoder had already moved on to the queued track, but the listener had not
-            // reached it yet. Put the queued track back and seek the one being heard.
+        RestoreStagedLocked();
+        if (boundaryFrame_.load() >= 0 && !boundaryContinues_.load() && retired_) {
+            // The decoder had already moved on to the queued track (or begun fading into it), but
+            // the listener had not reached it yet. Put the queued track back and seek the one being heard.
             current_->SeekToFrame(0);
-            next_ = std::move(current_);
+            if (!next_) next_ = std::move(current_);
             current_ = std::move(retired_);
+            ++nextVersion_;
         }
         retired_.reset();
     }
@@ -470,7 +586,10 @@ hrc_result PlaybackEngine::SeekToFrame(uint64_t frame) {
     const bool seeked = current_->SeekToFrame(frame);
     const uint64_t landed = current_->PositionFrames();
     PublishPlayingInfo(*current_);
-    eq_.RequestReset();
+    eqSlots_[0].RequestReset();
+    eqSlots_[1].RequestReset();
+    dspSlots_[0].RequestReset();
+    dspSlots_[1].RequestReset();
     {
         std::lock_guard<std::mutex> lock(streamMutex_);
         ResetRingLocked(current_->format, landed);
@@ -496,42 +615,88 @@ hrc_result PlaybackEngine::Close() {
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
         next_.reset();
+        staged_.reset();
         retired_.reset();
+        primedFrames_ = 0;
+        ++nextVersion_;
     }
     current_.reset();
     boundaryFrame_.store(-1);
+    mixing_.store(false);
     PublishPlayingInfo(TrackSource{});
     state_.store(State::Idle, std::memory_order_release);
     return HRC_OK;
 }
 
 hrc_result PlaybackEngine::SetOutput(const hrc_output_config& config) {
-    if (config.kind == HRC_OUTPUT_B) return HRC_E_NOT_BUILT;  // the usbfs driver is Phase 5
-    if (config.kind != HRC_OUTPUT_A) return HRC_E_INVALID_ARG;
-    if (config.sample_rate != 0) return HRC_E_UNSUPPORTED;    // needs the engine resampler (libsoxr), not built
+    if (config.kind != HRC_OUTPUT_A && config.kind != HRC_OUTPUT_B) return HRC_E_INVALID_ARG;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (config.usb_fd < 0) return HRC_E_INVALID_ARG;
+        if (!usbFactory_) return HRC_E_NOT_BUILT;
+    }
+    // Any sample rate is supported: 0 follows source rate, non-zero resamples cleanly with libsoxr.
     switch (config.format) {
         case HRC_SAMPLE_UNKNOWN: case HRC_SAMPLE_S16: case HRC_SAMPLE_S24:
         case HRC_SAMPLE_S32: case HRC_SAMPLE_F32: break;
         default: return HRC_E_UNSUPPORTED;
     }
     std::lock_guard<std::mutex> lock(streamMutex_);
+    const bool bitPerfect = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
+    if (outputOpen_ && config.kind == outKind_ && config.format == outFormatConfig_ &&
+        config.sample_rate == outRateConfig_ && bitPerfect == bitPerfect_ &&
+        (config.kind != HRC_OUTPUT_B || (config.usb_fd == usbFd_ && config.usb_interface == usbInterface_))) {
+        return HRC_OK;  // nothing changes, so keep the stream (no click on a repeated call)
+    }
+    // Move to the output the user chose. The old one is closed first so only one ever holds the DAC.
+    const bool wasOpen = outputOpen_;
+    if (config.kind == HRC_OUTPUT_B) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
+        outputB_ = usbFactory_(config.usb_fd, config.usb_interface);
+        if (!outputB_) return HRC_E_OUTPUT_FAILED;
+        output_ = outputB_.get();
+        usbFd_ = config.usb_fd;
+        usbInterface_ = config.usb_interface;
+    } else if (output_ != outputA_.get()) {
+        if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+        output_ = outputA_.get();
+        outputB_.reset();
+    }
     outKind_ = config.kind;
     outFormatConfig_ = config.format;
     outRateConfig_ = config.sample_rate;
     followsSource_.store(config.format == HRC_SAMPLE_UNKNOWN && config.sample_rate == 0, std::memory_order_release);
-    bitPerfect_ = (config.flags & HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER) != 0;
-    if (!outputOpen_ || ringFormat_.sampleRate <= 0) return HRC_OK;
+    bitPerfect_ = bitPerfect;
+    if (!wasOpen || ringFormat_.sampleRate <= 0) return HRC_OK;
     // Reopen now. The ring keeps its source-format frames; only the final conversion changes.
-    if (!OpenOutputLocked()) return HRC_E_OUTPUT_FAILED;
-    if (GetState() == State::Playing && !output_->Start()) return HRC_E_OUTPUT_FAILED;
+    if (!OpenOutputLocked() || (GetState() == State::Playing && !output_->Start())) {
+        if (outKind_ == HRC_OUTPUT_B) FallBackToOutputALocked();   // never leave the user with no sound path
+        return HRC_E_OUTPUT_FAILED;
+    }
     return HRC_OK;
+}
+
+void PlaybackEngine::SetUsbOutputFactory(UsbOutputFactory factory) {
+    std::lock_guard<std::mutex> lock(streamMutex_);
+    usbFactory_ = std::move(factory);
+}
+
+// Output B could not open or died: go back to Output A so playback can continue. streamMutex_ held.
+void PlaybackEngine::FallBackToOutputALocked() {
+    if (outputOpen_) { output_->Close(); outputOpen_ = false; }
+    output_ = outputA_.get();
+    outputB_.reset();
+    outKind_ = HRC_OUTPUT_A;
+    if (ringFormat_.sampleRate > 0 && OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 
 void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
     hrc_output_config config{};
     config.struct_size = sizeof(config);
     config.kind = HRC_OUTPUT_A;
-    config.format = encoding == kEncodingPcm16 ? HRC_SAMPLE_S16
+    config.format = encoding == kEncodingDefault ? HRC_SAMPLE_UNKNOWN
+                  : encoding == kEncodingPcm16 ? HRC_SAMPLE_S16
                   : encoding == kEncodingPcm24Packed ? HRC_SAMPLE_S24
                   : encoding == kEncodingPcm32 ? HRC_SAMPLE_S32 : HRC_SAMPLE_F32;
     config.flags = bitPerfect ? HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER : 0;
@@ -542,10 +707,68 @@ void PlaybackEngine::SetOutputFormat(int32_t encoding, bool bitPerfect) {
 
 void PlaybackEngine::SetEq(const DSP::ParametricEq::Band* bands, int count, double preampDb, bool enabled) {
     std::lock_guard<std::mutex> lock(sourceMutex_);  // EQ control state is shared with a decoder-side reopen
-    eq_.SetBands(bands, count, preampDb, enabled);
-    const bool active = eq_.IsActive();
+    count = std::clamp(count, 0, DSP::ParametricEq::kMaxBands);
+    if (bands && count > 0) {
+        std::copy(bands, bands + count, eqBands_);
+    }
+    eqBandCount_ = count;
+    eqPreampDb_ = preampDb;
+    eqEnabled_ = enabled;
+
+    const uint32_t inactive = activeDspSlot_.load(std::memory_order_relaxed) ^ 1u;
+    eqSlots_[inactive].SetBands(bands, count, preampDb, enabled);
+    const bool active = eqSlots_[inactive].IsActive();
     peqFlags_.store(HRC_STAGE_BUILT | (enabled ? HRC_STAGE_ENABLED : 0u) | (active ? 0u : HRC_STAGE_BYPASSED),
                     std::memory_order_release);
+    activeDspSlot_.store(inactive, std::memory_order_release);
+    eqSlots_[inactive ^ 1u].SetBands(bands, count, preampDb, enabled);
+}
+
+void PlaybackEngine::SetDsp(const DSP::DspSettings& settings) {
+    std::lock_guard<std::mutex> lock(sourceMutex_);  // chain control state is shared with a decoder-side reopen
+    dspSettings_ = settings;
+    const uint32_t inactive = activeDspSlot_.load(std::memory_order_relaxed) ^ 1u;
+    dspSlots_[inactive].Configure(settings);
+    PublishDspStages(inactive);
+    activeDspSlot_.store(inactive, std::memory_order_release);
+    dspSlots_[inactive ^ 1u].Configure(settings);
+}
+
+// Caller holds sourceMutex_. Copies the chain's control-side view into atomics for the telemetry reader.
+void PlaybackEngine::PublishDspStages(uint32_t slot) noexcept {
+    for (int i = 0; i < HRC_STAGE_COUNT; ++i) {
+        if (i == HRC_STAGE_PEQ || i == HRC_STAGE_OUTPUT) continue;
+        const auto info = dspSlots_[slot].Info(i);
+        stageFlags_[i].store((info.built ? HRC_STAGE_BUILT : 0u) | (info.enabled ? HRC_STAGE_ENABLED : 0u) |
+                                 (info.bypassed ? HRC_STAGE_BYPASSED : 0u),
+                             std::memory_order_release);
+        stageLatency_[i].store(info.latencyFrames, std::memory_order_release);
+        if (i == HRC_STAGE_NONLINEAR) nonlinearOversample_.store(info.oversample, std::memory_order_release);
+    }
+    // Stage 7 is the output stage: limiter and gain; conversion/dither follow it when anything is active.
+    const auto out = dspSlots_[slot].Info(7);
+    stageFlags_[HRC_STAGE_OUTPUT].store(HRC_STAGE_BUILT | (out.enabled ? HRC_STAGE_ENABLED : 0u) |
+                                            (out.bypassed ? HRC_STAGE_BYPASSED : 0u),
+                                        std::memory_order_release);
+    dspActive_.store(dspSlots_[slot].IsActive(), std::memory_order_release);
+}
+
+hrc_result PlaybackEngine::LoadImpulseFd(int fd, float wetMix, float gainDb) {
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    const double fs = current_ ? static_cast<double>(current_->format.sampleRate) : 48000.0;
+    hrc_result r = dspSlots_[0].Convolver().LoadImpulseFd(fd, fs, "Impulse Response", wetMix, gainDb);
+    if (r == HRC_OK) {
+        dspSlots_[1].Convolver().LoadImpulseFd(fd, fs, "Impulse Response", wetMix, gainDb);
+    }
+    PublishDspStages(activeDspSlot_.load(std::memory_order_relaxed));
+    return r;
+}
+
+void PlaybackEngine::ClearImpulse() noexcept {
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    dspSlots_[0].Convolver().ClearImpulse();
+    dspSlots_[1].Convolver().ClearImpulse();
+    PublishDspStages(activeDspSlot_.load(std::memory_order_relaxed));
 }
 
 PlaybackEngine::State PlaybackEngine::GetState() const noexcept {
@@ -576,7 +799,12 @@ void PlaybackEngine::OnOutputLost() noexcept {
     output_->Close();
     outputOpen_ = false;
     if (GetState() == State::Idle || ringFormat_.sampleRate <= 0) return;
-    // Reopen on whatever device is now current.
+    // Reopen on whatever device is now current. A lost USB DAC means going back to Output A.
+    if (outKind_ == HRC_OUTPUT_B) {
+        if (OpenOutputLocked() && playWhenReady_.load() && output_->Start()) return;
+        FallBackToOutputALocked();
+        return;
+    }
     if (OpenOutputLocked() && playWhenReady_.load()) output_->Start();
 }
 
@@ -596,22 +824,31 @@ void PlaybackEngine::StopDecoder() {
 }
 
 void PlaybackEngine::DecoderLoop(WindowReason reason, uint64_t windowStartFrame) {
+    ResetTail();
+    decodePos_ = windowStartFrame;
+    primedFrames_ = 0;
+    primeStalled_ = false;
+    primeAllowed_ = true;
+    pendingContinue_ = false;
     BeginWindow(*current_, reason, windowStartFrame);
     while (decoderRunning_.load()) {
         if (DecodeStep(*current_)) continue;
         if (!decoderRunning_.load()) return;  // stopped mid-track; not the end of anything
-        EndWindow();
-        if (!AdvanceToNext()) {
+        if (!FinishTrack()) {
             if (decoderRunning_.load()) decoderDone_.store(true, std::memory_order_release);
             return;
         }
     }
 }
 
-void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame) {
-    // The window id was assigned when the ring was reset (open, seek, reopen) or at the boundary (gapless).
-    decodeWindow_ = reason == WindowReason::Gapless ? boundaryWindow_.load(std::memory_order_relaxed)
-                                                    : playingWindow_.load(std::memory_order_acquire);
+void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, uint64_t startFrame, uint64_t mixFrames,
+                                 uint64_t windowId) {
+    // The window id was assigned when the ring was reset (open, seek, reopen) or at the boundary (gapless, fade).
+    const bool atBoundary = reason == WindowReason::Gapless || reason == WindowReason::Crossfade ||
+                            reason == WindowReason::Continue;
+    decodeWindow_ = windowId != 0 ? windowId
+                  : atBoundary ? boundaryWindow_.load(std::memory_order_relaxed)
+                               : playingWindow_.load(std::memory_order_acquire);
     decodeWindowFrames_ = 0;
     decodeHash_.Reset();
     DecoderRecord r{};
@@ -619,6 +856,7 @@ void PlaybackEngine::BeginWindow(const TrackSource& src, WindowReason reason, ui
     r.reason = reason;
     r.windowId = decodeWindow_;
     r.frames = startFrame;
+    r.mixFrames = mixFrames;
     r.source = src.info;
     decoderRing_.TryPush(r);
 }
@@ -670,8 +908,7 @@ bool PlaybackEngine::DecodeNativeStep(TrackSource& src) {
     }
     const size_t frames = src.decoder->ReadFrames(decodeBuffer_.get(), kFrames);
     if (frames == 0) return false;
-    HashDecoded(decodeBuffer_.get(), frames, src.format);
-    return WriteToRing(decodeBuffer_.get(), frames, src.format);
+    return Deliver(src, decodeBuffer_.get(), frames);
 }
 
 #if HIRES_HAVE_MEDIACODEC
@@ -753,6 +990,7 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
     const size_t frameBytes = format.FrameBytes();
     while (frames > 0) {
         if (!decoderRunning_.load()) return false;
+        TryInstallContinue();
         const size_t room = ring_->AvailableToWrite() / frameBytes;  // whole frames only
         const size_t n = std::min(frames, room);
         if (n > 0) {
@@ -762,7 +1000,9 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
             data += n * frameBytes;
             frames -= n;
         } else {
-            // Ring is full: the device is draining it. Wait without spinning.
+            // Ring is full: the device is draining it. Use the time to decode the start of the queued
+            // track, then wait without spinning.
+            PrimeNext();
             std::unique_lock<std::mutex> lock(decoderMutex_);
             decoderCv_.wait_for(lock, kWait);
         }
@@ -770,38 +1010,359 @@ bool PlaybackEngine::WriteToRing(const uint8_t* data, size_t frames, const PcmFo
     return true;
 }
 
-// At the end of the current track, continue into the queued one: gaplessly in the same stream
-// when the format is identical, else by reopening the output once the listener reaches the end.
-bool PlaybackEngine::AdvanceToNext() {
+// ---------------------------------------------------------------------------
+// Track boundaries (decoder thread)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Never hold back more than this for a crossfade, whatever the setting and the format.
+constexpr size_t kMaxTailBytes = 64u << 20;
+constexpr size_t kMixChunkFrames = 4096;
+}  // namespace
+
+// Frames a crossfade between these two tracks lasts: the setting, but never more than half of
+// either track and never more than we are willing to hold in memory.
+size_t PlaybackEngine::FadeFrames(const PcmFormat& format, uint64_t outgoingTotal, uint64_t incomingTotal) const noexcept {
+    if (format.sampleRate <= 0 || format.FrameBytes() == 0) return 0;
+    const uint32_t ms = std::clamp(xfMs_.load(std::memory_order_relaxed), HRC_CROSSFADE_MIN_MS, HRC_CROSSFADE_MAX_MS);
+    uint64_t frames = static_cast<uint64_t>(ms) * static_cast<uint64_t>(format.sampleRate) / 1000u;
+    if (outgoingTotal > 0) frames = std::min<uint64_t>(frames, outgoingTotal / 2);
+    if (incomingTotal > 0) frames = std::min<uint64_t>(frames, incomingTotal / 2);
+    frames = std::min<uint64_t>(frames, kMaxTailBytes / format.FrameBytes());
+    return static_cast<size_t>(frames);
+}
+
+bool PlaybackEngine::Commit(const uint8_t* data, size_t frames, const PcmFormat& format) {
+    HashDecoded(data, frames, format);
+    return WriteToRing(data, frames, format);
+}
+
+void PlaybackEngine::ResetTail() {
+    tailCap_ = 0;
+    tailHead_ = 0;
+    tailFrames_ = 0;
+}
+
+// Writes the oldest `frames` held-back frames to the ring.
+bool PlaybackEngine::FlushTail(size_t frames) {
+    frames = std::min(frames, tailFrames_);
+    if (frames == 0) return true;
+    const PcmFormat& format = ringFormat_;
+    const size_t frameBytes = format.FrameBytes();
+    const size_t first = std::min(frames, tailCap_ - tailHead_);
+    const bool ok = Commit(tail_.data() + tailHead_ * frameBytes, first, format) &&
+                    (first == frames || Commit(tail_.data(), frames - first, format));
+    tailHead_ = (tailHead_ + frames) % tailCap_;
+    tailFrames_ -= frames;
+    return ok;
+}
+
+bool PlaybackEngine::Deliver(const TrackSource& src, const uint8_t* data, size_t frames) {
+    const PcmFormat& format = src.format;
+    const size_t frameBytes = format.FrameBytes();
+    if (tailCap_ == 0 && xfEnabled_.load(std::memory_order_acquire) && src.totalFrames > 0 && src.decoder) {
+        // Hold back the end of the track while a crossfade might still use it. The length is
+        // known, so this starts a little early (a quarter second) to absorb a length that is
+        // slightly off; the tail itself is always the real last frames, found at end of stream.
+        const size_t fade = FadeFrames(format, src.totalFrames, 0);
+        if (fade >= static_cast<size_t>(format.sampleRate) / 10) {
+            const uint64_t slack = static_cast<uint64_t>(format.sampleRate) / 4;
+            const uint64_t holdFrom = src.totalFrames > fade + slack ? src.totalFrames - fade - slack : 0;
+            if (decodePos_ + frames > holdFrom) {
+                const size_t direct = decodePos_ >= holdFrom ? 0 : static_cast<size_t>(holdFrom - decodePos_);
+                if (direct > 0) {
+                    if (!Commit(data, direct, format)) return false;
+                    data += direct * frameBytes;
+                    frames -= direct;
+                    decodePos_ += direct;
+                }
+                tailCap_ = fade;
+                tailHead_ = 0;
+                tailFrames_ = 0;
+                if (tail_.size() < fade * frameBytes) tail_.resize(fade * frameBytes);
+            }
+        }
+    }
+    decodePos_ += frames;
+    if (tailCap_ == 0) return Commit(data, frames, format);
+
+    if (frames >= tailCap_) {   // this chunk alone fills the tail
+        if (!FlushTail(tailFrames_)) return false;
+        const size_t skip = frames - tailCap_;
+        if (skip > 0 && !Commit(data, skip, format)) return false;
+        std::memcpy(tail_.data(), data + skip * frameBytes, tailCap_ * frameBytes);
+        tailHead_ = 0;
+        tailFrames_ = tailCap_;
+        return true;
+    }
+    const size_t overflow = tailFrames_ + frames > tailCap_ ? tailFrames_ + frames - tailCap_ : 0;
+    if (overflow > 0 && !FlushTail(overflow)) return false;
+    const size_t at = (tailHead_ + tailFrames_) % tailCap_;
+    const size_t first = std::min(frames, tailCap_ - at);
+    std::memcpy(tail_.data() + at * frameBytes, data, first * frameBytes);
+    if (first < frames) std::memcpy(tail_.data(), data + first * frameBytes, (frames - first) * frameBytes);
+    tailFrames_ += frames;
+    return true;
+}
+
+// A fade ends with the same track going on untouched; that second boundary is installed as soon
+// as the first one has been crossed, because only one can be pending at a time.
+void PlaybackEngine::TryInstallContinue() {
+    if (!pendingContinue_ || boundaryFrame_.load(std::memory_order_acquire) >= 0) return;
+    boundaryWindow_.store(continueWindow_, std::memory_order_relaxed);
+    boundaryContinues_.store(true, std::memory_order_relaxed);
+    boundaryMixes_.store(false, std::memory_order_relaxed);
+    boundaryFrame_.store(continueFrame_, std::memory_order_release);
+    pendingContinue_ = false;
+}
+
+void PlaybackEngine::WaitBoundaryClear() {
     // Only one boundary can be pending; wait for the listener to cross the previous one.
-    while (decoderRunning_.load() && boundaryFrame_.load(std::memory_order_acquire) >= 0) {
+    while (decoderRunning_.load()) {
+        TryInstallContinue();
+        if (boundaryFrame_.load(std::memory_order_acquire) < 0 && !pendingContinue_) break;
         std::unique_lock<std::mutex> lock(decoderMutex_);
         decoderCv_.wait_for(lock, kWait);
     }
-    if (!decoderRunning_.load()) return false;
+}
 
-    std::unique_ptr<TrackSource> next;
+// The queued track, from the pre-decode stage when it is still the one the app queued.
+std::unique_ptr<TrackSource> PlaybackEngine::ClaimNext() {
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    if (staged_) {
+        if (stagedVersion_ == nextVersion_) return std::move(staged_);   // primed_ holds its first frames
+        staged_.reset();   // the app queued or cleared a track since
+    }
+    primedFrames_ = 0;
+    return std::move(next_);
+}
+
+void PlaybackEngine::PutBackNext(std::unique_ptr<TrackSource> next) {
+    if (!next) return;
+    if (primedFrames_ > 0) next->SeekToFrame(0);   // its first frames were taken; start it over
+    primedFrames_ = 0;
+    std::lock_guard<std::mutex> lock(sourceMutex_);
+    if (!next_) next_ = std::move(next);
+}
+
+// Decoder stopped (seek, close): the pre-decoded track goes back to being the queued one.
+void PlaybackEngine::RestoreStagedLocked() {
+    if (staged_) {
+        if (stagedVersion_ == nextVersion_ && !next_) {
+            if (primedFrames_ > 0) staged_->SeekToFrame(0);
+            next_ = std::move(staged_);
+        }
+        staged_.reset();
+    }
+    primedFrames_ = 0;
+    primeStalled_ = false;
+}
+
+// While the ring is full the decoder has nothing to do: decode the start of the queued track,
+// so the boundary (and a crossfade, which needs those frames at once) never waits on a file open
+// or a network read.
+void PlaybackEngine::PrimeNext() {
+    if (!primeAllowed_ || primeStalled_ || ringFrameBytes_ == 0) return;
+    TrackSource* staged = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        if (staged_ && stagedVersion_ != nextVersion_) {
+            staged_.reset();
+            primedFrames_ = 0;
+        }
+        if (!staged_) {
+            if (!next_) return;
+            staged_ = std::move(next_);
+            stagedVersion_ = nextVersion_;
+            primedFrames_ = 0;
+        }
+        staged = staged_.get();
+    }
+    if (!staged->decoder || staged->format != ringFormat_) {
+        primeStalled_ = true;   // nothing to prime: it will be opened at the boundary
+        return;
+    }
+    const size_t frameBytes = ringFrameBytes_;
+    const size_t rate = static_cast<size_t>(ringFormat_.sampleRate);
+    size_t target = xfEnabled_.load(std::memory_order_acquire) ? FadeFrames(ringFormat_, 0, staged->totalFrames) : 0;
+    target = std::min(std::max(target, rate / 2), std::min(rate * 8, (32u << 20) / frameBytes));
+    if (primedFrames_ >= target) return;
+    if (primed_.size() < target * frameBytes) primed_.resize(target * frameBytes);
+    const size_t want = std::min<size_t>(kMixChunkFrames, target - primedFrames_);
+    const size_t got = staged->decoder->ReadFrames(primed_.data() + primedFrames_ * frameBytes, want);
+    primedFrames_ += got;
+    if (got == 0) primeStalled_ = true;   // the queued track is empty or unreadable
+}
+
+void PlaybackEngine::PublishPending(const TrackSource& src) {
+    pendingRate_.store(src.format.sampleRate, std::memory_order_relaxed);
+    pendingChannels_.store(src.format.channels, std::memory_order_relaxed);
+    pendingBits_.store(src.info.valid_bits, std::memory_order_relaxed);
+    pendingTotalFrames_.store(src.totalFrames, std::memory_order_relaxed);
+}
+
+// The current track is decoded to its end: crossfade into the queued one, or continue into it
+// gaplessly, or (nothing queued) finish.
+bool PlaybackEngine::FinishTrack() {
+    primeAllowed_ = false;
+    std::unique_ptr<TrackSource> next = ClaimNext();
+    // Nothing queued yet. The app queues the next track a moment after a track opens, and a short
+    // track can be decoded before that happens: give it a moment while the listener still has well
+    // over that much waiting. (Not while a fade tail is held back: that audio is still owed.)
+    if (!next && tailFrames_ == 0 && ringFrameBytes_ > 0) {
+        const size_t margin = ringFrameBytes_ * (static_cast<size_t>(ringFormat_.sampleRate) / 2);   // keep 500 ms in hand
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+        while (!next && decoderRunning_.load() && ring_->AvailableToRead() > margin &&
+               std::chrono::steady_clock::now() < until) {
+            {
+                std::unique_lock<std::mutex> lock(decoderMutex_);
+                decoderCv_.wait_for(lock, std::chrono::milliseconds(10));
+            }
+            next = ClaimNext();
+        }
+    }
+    size_t fade = 0;
+    if (next && tailFrames_ > 0 && xfEnabled_.load(std::memory_order_acquire) && next->decoder &&
+        !next->noCrossfade && next->format == ringFormat_) {
+        fade = std::min(tailFrames_, FadeFrames(ringFormat_, 0, next->totalFrames));
+        if (fade < static_cast<size_t>(ringFormat_.sampleRate) / 10) fade = 0;   // too short to be a fade
+    }
+    // Everything before the fade is plain audio; so is all of it when there is no fade. It goes
+    // out before we wait for the previous boundary, or the listener could run dry meanwhile.
+    const bool flushed = FlushTail(fade > 0 ? tailFrames_ - fade : tailFrames_);
+    if (fade == 0) ResetTail();
+    if (!flushed) {
+        PutBackNext(std::move(next));
+        return false;
+    }
+    EndWindow();
+    WaitBoundaryClear();   // only one boundary can be pending
+    if (!decoderRunning_.load()) {
+        PutBackNext(std::move(next));
+        return false;
+    }
+    if (!next) {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        retired_.reset();  // its last frame has been heard
+        return false;
+    }
+    const bool ok = fade > 0 ? CrossfadeInto(std::move(next), fade) : AdvanceWith(std::move(next));
+    primeAllowed_ = ok;
+    primeStalled_ = false;
+    return ok;
+}
+
+// Continue into the queued track: gaplessly in the same stream when the format is identical,
+// else by reopening the output once the listener reaches the end.
+bool PlaybackEngine::AdvanceWith(std::unique_ptr<TrackSource> next) {
+    if (!decoderRunning_.load()) {
+        PutBackNext(std::move(next));
+        return false;
+    }
     {
         std::lock_guard<std::mutex> lock(sourceMutex_);
         retired_.reset();  // its last frame has been heard
-        if (!next_) return false;
-        if (next_->format == ringFormat_) {
+        if (next->format == ringFormat_) {
             retired_ = std::move(current_);
-            current_ = std::move(next_);
-            pendingRate_.store(current_->format.sampleRate, std::memory_order_relaxed);
-            pendingChannels_.store(current_->format.channels, std::memory_order_relaxed);
-            pendingBits_.store(current_->info.valid_bits, std::memory_order_relaxed);
-            pendingTotalFrames_.store(current_->totalFrames, std::memory_order_relaxed);
+            current_ = std::move(next);
+            PublishPending(*current_);
             boundaryWindow_.store(nextWindowId_.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+            boundaryContinues_.store(false, std::memory_order_relaxed);
+            boundaryMixes_.store(false, std::memory_order_relaxed);
             BeginWindow(*current_, WindowReason::Gapless, 0);
             boundaryFrame_.store(framesWritten_, std::memory_order_release);
             HRC_LOGI(kTag, "Gapless: next track queued at frame %lld", static_cast<long long>(framesWritten_));
-            return true;
+        } else if (!FollowsSource()) {
+            // Fixed output format: stop at the boundary, the app reopens.
+            if (!next_) next_ = std::move(next);
+            return false;
         }
-        if (!FollowsSource()) return false;  // fixed output format: stop at the boundary, the app reopens
-        next = std::move(next_);
+    }
+    if (!next) {   // moved into current_ above: same format
+        // The first frames were decoded ahead of time; they go out first.
+        ResetTail();
+        decodePos_ = 0;
+        const size_t primed = primedFrames_;
+        primedFrames_ = 0;
+        return primed == 0 || Deliver(*current_, primed_.data(), primed);
     }
     return ReopenForNext(std::move(next));
+}
+
+// Mixes the held-back end of the playing track with the start of the queued one into the ring.
+// From the boundary on, the listener hears track `next` (position, metadata) while the audio is
+// still mostly the old track: that is how a crossfade reads on every player.
+bool PlaybackEngine::CrossfadeInto(std::unique_ptr<TrackSource> next, size_t fadeFrames) {
+    const FadeCurve curve = static_cast<FadeCurve>(xfCurve_.load(std::memory_order_relaxed));
+    {
+        std::lock_guard<std::mutex> lock(sourceMutex_);
+        retired_.reset();
+        retired_ = std::move(current_);
+        current_ = std::move(next);
+        PublishPending(*current_);
+        boundaryWindow_.store(nextWindowId_.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+        boundaryContinues_.store(false, std::memory_order_relaxed);
+        boundaryMixes_.store(true, std::memory_order_relaxed);
+        BeginWindow(*current_, WindowReason::Crossfade, 0, fadeFrames);
+        boundaryFrame_.store(framesWritten_, std::memory_order_release);
+    }
+    HRC_LOGI(kTag, "Crossfade: %zu frames starting at ring frame %lld", fadeFrames, static_cast<long long>(framesWritten_));
+
+    TrackSource& incoming = *current_;
+    const PcmFormat format = ringFormat_;
+    const size_t frameBytes = format.FrameBytes();
+    const size_t scratch = kMixChunkFrames * frameBytes;
+    if (mixA_.size() < scratch) mixA_.resize(scratch);
+    if (mixB_.size() < scratch) mixB_.resize(scratch);
+    if (mixOut_.size() < scratch) mixOut_.resize(scratch);
+
+    size_t done = 0;
+    size_t primedUsed = 0;
+    uint64_t incomingFrames = 0;   // frames of the incoming track consumed so far
+    bool incomingEnded = false;
+    while (done < fadeFrames) {
+        if (!decoderRunning_.load()) return false;
+        const size_t n = std::min(kMixChunkFrames, fadeFrames - done);
+        // Outgoing: the oldest held-back frames.
+        const size_t first = std::min(n, tailCap_ - tailHead_);
+        std::memcpy(mixA_.data(), tail_.data() + tailHead_ * frameBytes, first * frameBytes);
+        if (first < n) std::memcpy(mixA_.data() + first * frameBytes, tail_.data(), (n - first) * frameBytes);
+        tailHead_ = (tailHead_ + n) % tailCap_;
+        tailFrames_ -= n;
+        // Incoming: decoded ahead of time first, then from the decoder.
+        size_t got = 0;
+        if (primedUsed < primedFrames_) {
+            got = std::min(n, primedFrames_ - primedUsed);
+            std::memcpy(mixB_.data(), primed_.data() + primedUsed * frameBytes, got * frameBytes);
+            primedUsed += got;
+        }
+        while (got < n && !incomingEnded) {
+            const size_t r = incoming.decoder->ReadFrames(mixB_.data() + got * frameBytes, n - got);
+            if (r == 0) incomingEnded = true;
+            got += r;
+        }
+        incomingFrames += got;
+        if (got < n) std::memset(mixB_.data() + got * frameBytes, 0, (n - got) * frameBytes);  // too short: silence
+        mixer_.Mix(mixA_.data(), mixB_.data(), mixOut_.data(), n, format.channels, format.format, curve, done, fadeFrames);
+        HashDecoded(mixB_.data(), n, format);
+        if (!WriteToRing(mixOut_.data(), n, format)) return false;
+        done += n;
+    }
+    ResetTail();
+    primedFrames_ = 0;
+    decodePos_ = incomingFrames;
+    if (incomingEnded) return true;   // the incoming track is over; the loop finishes it as usual
+
+    // The same track goes on, untouched. It is a window of its own so the receipt and the
+    // bit-exact claim for what follows the fade stand on that audio alone. Decoding carries on at
+    // once; the boundary is installed when the listener has crossed the one into the fade.
+    EndWindow();
+    continueWindow_ = nextWindowId_.fetch_add(1, std::memory_order_relaxed);
+    BeginWindow(incoming, WindowReason::Continue, incomingFrames, 0, continueWindow_);
+    continueFrame_ = framesWritten_;
+    pendingContinue_ = true;
+    TryInstallContinue();
+    return true;
 }
 
 bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
@@ -821,22 +1382,35 @@ bool PlaybackEngine::ReopenForNext(std::unique_ptr<TrackSource> next) {
     if (outputOpen_) output_->Stop();
     draining_.store(false, std::memory_order_release);
     if (!decoderRunning_.load()) return putBack();  // a seek or close is tearing down; it owns the output
-    const bool formatChanged = next->format.format != ringFormat_.format;
     {
         std::lock_guard<std::mutex> sourceLock(sourceMutex_);
         current_ = std::move(next);
-        eq_.SetSampleRate(current_->format.sampleRate);
+        eqSlots_[0].SetSampleRate(current_->format.sampleRate);
+        eqSlots_[1].SetSampleRate(current_->format.sampleRate);
+        dspSlots_[0].SetSampleRate(current_->format.sampleRate);
+        dspSlots_[1].SetSampleRate(current_->format.sampleRate);
+        PublishDspStages(activeDspSlot_.load(std::memory_order_relaxed));
     }
-    eq_.RequestReset();
+    eqSlots_[0].RequestReset();
+    eqSlots_[1].RequestReset();
+    dspSlots_[0].RequestReset();
+    dspSlots_[1].RequestReset();
     PublishPlayingInfo(*current_);
     ResetRingLocked(current_->format, 0);
-    // A bit-perfect mixer is set for one format. After a format change the caller must set it
-    // again (it learns of the reopen from HRC_EVENT_OUTPUT_REOPENED) before we claim it.
-    if (formatChanged) bitPerfect_ = false;
-    if (!OpenOutputLocked()) {
+
+    const bool reqBitPerfect = bitPerfect_;
+    if (outKind_ == HRC_OUTPUT_B) {
+        bitPerfect_ = true;
+    } else {
+        bitPerfect_ = false;  // clears OS mixer confirmation until Kotlin re-confirms HRC_OUTPUT_FLAG_BIT_PERFECT_MIXER
+    }
+    if (!OpenOutputLocked(reqBitPerfect)) {
         state_.store(State::Error, std::memory_order_release);
         return false;
     }
+    ResetTail();
+    decodePos_ = 0;
+    primedFrames_ = 0;
     BeginWindow(*current_, WindowReason::Reopen, 0);
     transitions_.fetch_add(1, std::memory_order_release);
     if (playWhenReady_.load()) output_->Start();
@@ -861,33 +1435,53 @@ void PlaybackEngine::Render(void* out, int32_t numFrames, int64_t outputXruns) n
             OutputCheckpoint c{playingWindow_.load(std::memory_order_relaxed), rtWindowFrames_, rtHash_.Value(), 1, 0};
             outCheckRing_.TryPush(c);
             playingWindow_.store(boundaryWindow_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingTrackStart_.store(0, std::memory_order_relaxed);
-            playingRingStart_.store(boundary, std::memory_order_relaxed);
-            playingRate_.store(pendingRate_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingChannels_.store(pendingChannels_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingBits_.store(pendingBits_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            playingTotalFrames_.store(pendingTotalFrames_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            if (boundaryContinues_.load(std::memory_order_relaxed)) {
+                // The same track goes on after a crossfade: only the receipt window changes.
+                playingTrackStart_.store(playingTrackStart_.load(std::memory_order_relaxed) + rtWindowFrames_,
+                                         std::memory_order_relaxed);
+                playingRingStart_.store(boundary, std::memory_order_relaxed);
+                mixing_.store(false, std::memory_order_release);
+            } else {
+                playingTrackStart_.store(0, std::memory_order_relaxed);
+                playingRingStart_.store(boundary, std::memory_order_relaxed);
+                playingRate_.store(pendingRate_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingChannels_.store(pendingChannels_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingBits_.store(pendingBits_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                playingTotalFrames_.store(pendingTotalFrames_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                mixing_.store(boundaryMixes_.load(std::memory_order_relaxed), std::memory_order_release);
+                transitions_.fetch_add(1, std::memory_order_release);
+            }
             rtWindowFrames_ = 0;
             rtHash_.Reset();
             boundaryFrame_.store(-1, std::memory_order_release);
-            transitions_.fetch_add(1, std::memory_order_release);
             boundary = -1;
         }
         size_t segment = remaining;
-        if (boundary > played) segment = std::min<size_t>(segment, static_cast<size_t>(boundary - played));
+        const bool resample = resamplerActive_.load(std::memory_order_acquire);
+        if (boundary > played) {
+            const int64_t srcRemaining = boundary - played;
+            if (resample && ringFormat_.sampleRate > 0 && outInfo_.sampleRate > 0) {
+                const int64_t outRemaining = srcRemaining * outInfo_.sampleRate / ringFormat_.sampleRate;
+                if (outRemaining > 0) segment = std::min<size_t>(segment, static_cast<size_t>(outRemaining));
+            } else {
+                segment = std::min<size_t>(segment, static_cast<size_t>(srcRemaining));
+            }
+        }
 
-        const size_t got = RenderSegment(dst, segment);
-        framesPlayed_.store(played + static_cast<int64_t>(got), std::memory_order_release);
+        size_t sourceDrained = 0;
+        const size_t got = RenderSegment(dst, segment, sourceDrained);
+        framesPlayed_.store(played + static_cast<int64_t>(sourceDrained), std::memory_order_release);
         dst += got * outFrameBytes;
         remaining -= got;
         if (got < segment) {
             std::memset(dst, 0, remaining * outFrameBytes);  // the rest of this buffer is silence
             if (decoderDone_.load(std::memory_order_acquire) && boundaryFrame_.load(std::memory_order_acquire) < 0 &&
-                ring_->AvailableToRead() < ringFrameBytes_) {
+                ring_->AvailableToRead() < ringFrameBytes_ && (!resample || resampleFifoCount_ == 0)) {
                 if (!rtEnded_.load(std::memory_order_relaxed)) {
                     OutputCheckpoint c{playingWindow_.load(std::memory_order_relaxed), rtWindowFrames_, rtHash_.Value(), 1, 0};
                     outCheckRing_.TryPush(c);
                     rtEnded_.store(true, std::memory_order_relaxed);
+                    mixing_.store(false, std::memory_order_release);
                     state_.store(State::Ended, std::memory_order_release);
                 }
             } else if (!draining_.load(std::memory_order_acquire)) {
@@ -905,36 +1499,206 @@ void PlaybackEngine::Render(void* out, int32_t numFrames, int64_t outputXruns) n
     r.outputXruns = outputXruns;
     r.ended = rtEnded_.load(std::memory_order_relaxed) ? 1u : 0u;
     rtRing_.TryPush(r);
-    decoderCv_.notify_one();
 }
 
 // Converts up to `frames` frames from the ring into `out`; returns how many the ring had.
-size_t PlaybackEngine::RenderSegment(uint8_t* out, size_t frames) noexcept {
-    if (ringFrameBytes_ == 0) return 0;
-    const bool dsp = (peqFlags_.load(std::memory_order_acquire) & HRC_STAGE_BYPASSED) == 0;
+size_t PlaybackEngine::RenderSegment(uint8_t* out, size_t frames, size_t& sourceFramesDrained) noexcept {
+    sourceFramesDrained = 0;
+    if (ringFrameBytes_ == 0 || frames == 0) return 0;
+    const bool dsp = (peqFlags_.load(std::memory_order_acquire) & HRC_STAGE_BYPASSED) == 0 ||
+                     dspActive_.load(std::memory_order_acquire);
     const size_t outFrameBytes = SampleBytes(outFormat_) * static_cast<size_t>(outChannels_);
     const size_t maxChunk = std::min(kScratchFrames, byteScratch_.size() / ringFrameBytes_);
+    const bool resample = resamplerActive_.load(std::memory_order_acquire);
     size_t done = 0;
+
+    static constexpr float kH1[12] = {
+        -0.001708984375f, 0.010986328125f, -0.0390625f, 0.101806640625f,
+        -0.24755859375f, 0.865478515625f, 0.380859375f, -0.1171875f,
+        0.052001953125f, -0.0224609375f, 0.0087890625f, -0.00244140625f
+    };
+    static constexpr float kH2[12] = {
+        -0.0029296875f, 0.017333984375f, -0.057861328125f, 0.147705078125f,
+        -0.36376953125f, 0.64013671875f, 0.64013671875f, -0.36376953125f,
+        0.147705078125f, -0.057861328125f, 0.017333984375f, -0.0029296875f
+    };
+
+    auto meterOutput = [&](const uint8_t* dst, size_t chunk) noexcept {
+        for (int32_t ch = 0; ch < outChannels_; ++ch) {
+            float maxSamplePeak = 0.0f;
+            float maxTruePeak = 0.0f;
+            double sumSquares = 0.0;
+            for (size_t i = 0; i < chunk; ++i) {
+                const uint8_t* p = dst + (i * static_cast<size_t>(outChannels_) + static_cast<size_t>(ch)) * SampleBytes(outFormat_);
+                const float s = SampleToFloat(p, outFormat_);
+                const float absS = std::fabs(s);
+                if (absS > maxSamplePeak) maxSamplePeak = absS;
+                sumSquares += static_cast<double>(s) * static_cast<double>(s);
+
+                tpHistory_[ch][tpHead_[ch]] = s;
+                tpHead_[ch] = (tpHead_[ch] + 1) % 12;
+
+                float y1 = 0.0f, y2 = 0.0f, y3 = 0.0f;
+                for (size_t tap = 0; tap < 12; ++tap) {
+                    const size_t idx = (tpHead_[ch] + tap) % 12;
+                    const float histSample = tpHistory_[ch][idx];
+                    y1 += kH1[tap] * histSample;
+                    y2 += kH2[tap] * histSample;
+                    y3 += kH1[11 - tap] * histSample;
+                }
+                const float peak4x = std::max({absS, std::fabs(y1), std::fabs(y2), std::fabs(y3)});
+                if (peak4x > maxTruePeak) maxTruePeak = peak4x;
+            }
+            UpdateMaxAtomic(levelPeak_[ch], maxSamplePeak);
+            UpdateMaxAtomic(levelTruePeak_[ch], maxTruePeak);
+            AddAtomic(levelSumSq_[ch], sumSquares);
+        }
+        levelFrames_.fetch_add(chunk, std::memory_order_relaxed);
+    };
+
+    if (resample) {
+        const size_t fifoCap = resampleFifo_.size() / kOutputChannels;
+        while (done < frames) {
+            while (resampleFifoCount_ < (frames - done)) {
+                const size_t available = ring_->AvailableToRead() / ringFrameBytes_;
+                if (available > 0) {
+                    const size_t chunk = std::min({available, maxChunk, size_t(512)});
+                    ring_->Read({byteScratch_.data(), chunk * ringFrameBytes_});
+                    sourceFramesDrained += chunk;
+
+                    // Advance rtWindowFrames_ and emit checkpoints on source-frame boundaries
+                    uint64_t chunkLeft = chunk;
+                    while (chunkLeft > 0) {
+                        const uint64_t toCheckpoint = kCheckpointFrames - rtWindowFrames_ % kCheckpointFrames;
+                        const size_t n = static_cast<size_t>(std::min<uint64_t>(chunkLeft, toCheckpoint));
+                        rtWindowFrames_ += n;
+                        chunkLeft -= n;
+                        if (rtWindowFrames_ % kCheckpointFrames == 0) {
+                            OutputCheckpoint c{playingWindow_.load(std::memory_order_relaxed), rtWindowFrames_, rtHash_.Value(), 0, 0};
+                            outCheckRing_.TryPush(c);
+                        }
+                    }
+
+                    ToStereoFloat(byteScratch_.data(), ringFormat_.format, ringFormat_.channels, resampleInScratch_.data(), chunk);
+                    if (dsp) {
+                        const uint32_t slot = activeDspSlot_.load(std::memory_order_acquire);
+                        dspSlots_[slot].ProcessPre(resampleInScratch_.data(), chunk);
+                        eqSlots_[slot].Process(resampleInScratch_.data(), chunk);
+                        dspSlots_[slot].ProcessConvolution(resampleInScratch_.data(), chunk);
+                        dspSlots_[slot].ProcessPost(resampleInScratch_.data(), chunk);
+                    }
+
+                    size_t inConsumed = 0;
+                    size_t outRoom = (resampleOutScratch_.size() / kOutputChannels);
+                    size_t outProduced = resampler_.Process(resampleInScratch_.data(), chunk, inConsumed,
+                                                           resampleOutScratch_.data(), outRoom);
+                    if (outProduced == 0) break;
+
+                    if (resampleFifoHead_ > 0) {
+                        if (resampleFifoCount_ > 0) {
+                            std::memmove(resampleFifo_.data(),
+                                         resampleFifo_.data() + resampleFifoHead_ * kOutputChannels,
+                                         resampleFifoCount_ * kOutputChannels * sizeof(float));
+                        }
+                        resampleFifoHead_ = 0;
+                    }
+                    const size_t toStore = std::min(outProduced, fifoCap - resampleFifoCount_);
+                    std::memcpy(resampleFifo_.data() + resampleFifoCount_ * kOutputChannels,
+                                resampleOutScratch_.data(),
+                                toStore * kOutputChannels * sizeof(float));
+                    resampleFifoCount_ += toStore;
+                } else if (decoderDone_.load(std::memory_order_acquire)) {
+                    // Flush delayed samples from libsoxr at end of track
+                    size_t inConsumed = 0;
+                    size_t outRoom = (resampleOutScratch_.size() / kOutputChannels);
+                    size_t outProduced = resampler_.Process(nullptr, 0, inConsumed,
+                                                           resampleOutScratch_.data(), outRoom);
+                    if (outProduced == 0) break;
+
+                    if (resampleFifoHead_ > 0) {
+                        if (resampleFifoCount_ > 0) {
+                            std::memmove(resampleFifo_.data(),
+                                         resampleFifo_.data() + resampleFifoHead_ * kOutputChannels,
+                                         resampleFifoCount_ * kOutputChannels * sizeof(float));
+                        }
+                        resampleFifoHead_ = 0;
+                    }
+                    const size_t toStore = std::min(outProduced, fifoCap - resampleFifoCount_);
+                    std::memcpy(resampleFifo_.data() + resampleFifoCount_ * kOutputChannels,
+                                resampleOutScratch_.data(),
+                                toStore * kOutputChannels * sizeof(float));
+                    resampleFifoCount_ += toStore;
+                    break;
+                } else {
+                    break;
+                }
+            }
+
+            const size_t take = std::min(frames - done, resampleFifoCount_);
+            if (take == 0) break;
+
+            const float* srcFloats = resampleFifo_.data() + resampleFifoHead_ * kOutputChannels;
+            std::memcpy(floatScratch_.data(), srcFloats, take * kOutputChannels * sizeof(float));
+            resampleFifoHead_ += take;
+            resampleFifoCount_ -= take;
+
+            if (outFormat_ == HRC_SAMPLE_S16 || outFormat_ == HRC_SAMPLE_S24) {
+                Dither(floatScratch_.data(), take);
+            }
+            uint8_t* dst = out + done * outFrameBytes;
+            ConvertFrames(reinterpret_cast<const uint8_t*>(floatScratch_.data()), HRC_SAMPLE_F32, kOutputChannels,
+                          dst, outFormat_, outChannels_, take);
+
+            meterOutput(dst, take);
+            rtHash_.Update(dst, take * static_cast<size_t>(outChannels_), outFormat_);
+            done += take;
+        }
+        return done;
+    }
+
+    // Direct bit-exact path
     while (done < frames) {
         const size_t available = ring_->AvailableToRead() / ringFrameBytes_;
         const size_t chunk = std::min({frames - done, maxChunk, available});
         if (chunk == 0) break;
         ring_->Read({byteScratch_.data(), chunk * ringFrameBytes_});
+        sourceFramesDrained += chunk;
         uint8_t* dst = out + done * outFrameBytes;
         if (dsp) {
-            // A DSP stage is on: promote to float, process, convert once at the end.
+            const uint32_t slot = activeDspSlot_.load(std::memory_order_acquire);
             ToStereoFloat(byteScratch_.data(), ringFormat_.format, ringFormat_.channels, floatScratch_.data(), chunk);
-            eq_.Process(floatScratch_.data(), chunk);
+            dspSlots_[slot].ProcessPre(floatScratch_.data(), chunk);
+            eqSlots_[slot].Process(floatScratch_.data(), chunk);
+            dspSlots_[slot].ProcessConvolution(floatScratch_.data(), chunk);
+            dspSlots_[slot].ProcessPost(floatScratch_.data(), chunk);
+            if (outFormat_ == HRC_SAMPLE_S16 || outFormat_ == HRC_SAMPLE_S24) Dither(floatScratch_.data(), chunk);
             ConvertFrames(reinterpret_cast<const uint8_t*>(floatScratch_.data()), HRC_SAMPLE_F32, kOutputChannels,
                           dst, outFormat_, outChannels_, chunk);
         } else {
             ConvertFrames(byteScratch_.data(), ringFormat_.format, ringFormat_.channels, dst, outFormat_, outChannels_,
                           chunk);
         }
+
+        meterOutput(dst, chunk);
         HashOutput(dst, chunk);
         done += chunk;
     }
     return done;
+}
+
+// The samples were changed by DSP and are about to be rounded to an integer format: add +-1 LSB TPDF
+// noise first so the rounding error is not correlated with the music.
+void PlaybackEngine::Dither(float* stereo, size_t frames) noexcept {
+    const double lsb = outFormat_ == HRC_SAMPLE_S16 ? 1.0 / 32768.0 : 1.0 / 8388608.0;
+    auto uniform = [this]() noexcept {   // xorshift64*, in (-0.5, 0.5)
+        ditherState_ ^= ditherState_ >> 12;
+        ditherState_ ^= ditherState_ << 25;
+        ditherState_ ^= ditherState_ >> 27;
+        return static_cast<double>((ditherState_ * 0x2545F4914F6CDD1Dull) >> 11) / 9007199254740992.0 - 0.5;
+    };
+    for (size_t i = 0; i < frames * kOutputChannels; ++i) {
+        stereo[i] = static_cast<float>(static_cast<double>(stereo[i]) + (uniform() + uniform()) * lsb);
+    }
 }
 
 void PlaybackEngine::HashOutput(const uint8_t* data, size_t frames) noexcept {
@@ -1061,11 +1825,14 @@ void PlaybackEngine::MergeRt(const RtRecord& r) noexcept {
         if (w) {
             t.source = w->source;
             t.has |= HRC_TELEMETRY_HAS_SOURCE;
-            if (w->reason != WindowReason::Seek) {
+            if (w->reason != WindowReason::Seek && w->reason != WindowReason::Continue) {
                 if (m.lastWindow != 0 && !m.endedReported) {
                     Emit(HRC_EVENT_TRACK_ENDED, m.lastTrack, static_cast<int64_t>(m.lastPosition));
                 }
                 Emit(HRC_EVENT_TRACK_STARTED, w->source.track_id, 0);
+                if (w->reason == WindowReason::Crossfade) {
+                    Emit(HRC_EVENT_CROSSFADE, w->source.track_id, static_cast<int64_t>(w->mixFrames));
+                }
                 if (w->reason == WindowReason::Reopen) {
                     Emit(HRC_EVENT_OUTPUT_REOPENED, w->source.track_id, outView_[kRate].load(std::memory_order_relaxed));
                 }
@@ -1117,14 +1884,61 @@ void PlaybackEngine::FillStatic(hrc_telemetry& t) noexcept {
     o.buffer_capacity_frames = static_cast<uint32_t>(v[kCapacity]);
     o.burst_frames = static_cast<uint32_t>(v[kBurst]);
     o.latency_ns = -1;
+    std::strncpy(o.device_name, outDeviceName_, sizeof(o.device_name) - 1);
     if (v[kOpen]) t.has |= HRC_TELEMETRY_HAS_OUTPUT;
     else t.has &= ~HRC_TELEMETRY_HAS_OUTPUT;
 
-    // Stages: only the parametric EQ and the output conversion exist so far.
+    // Clock drift
+    int32_t clkSource = HRC_CLOCK_UNKNOWN;
+    float clkDrift = 0.0f;
+    if (v[kOpen] && output_ && output_->GetClockDrift(clkSource, clkDrift)) {
+        t.clock.source = clkSource;
+        t.clock.drift_ppm = clkDrift;
+        t.has |= HRC_TELEMETRY_HAS_CLOCK;
+    } else {
+        t.clock.source = HRC_CLOCK_UNKNOWN;
+        t.clock.drift_ppm = 0.0f;
+        t.has &= ~HRC_TELEMETRY_HAS_CLOCK;
+    }
+
+    // Output levels (ITU-R BS.1770 true peak, RMS, peak)
+    const uint64_t lFrames = levelFrames_.exchange(0, std::memory_order_acq_rel);
+    const uint32_t numCh = static_cast<uint32_t>(v[kChannels]);
+    t.levels.channels = numCh > 0 ? numCh : 2;
+    for (uint32_t ch = 0; ch < HRC_MAX_CHANNELS; ++ch) {
+        if (ch < t.levels.channels && v[kOpen]) {
+            const float p = levelPeak_[ch].exchange(0.0f, std::memory_order_acq_rel);
+            const float tp = levelTruePeak_[ch].exchange(0.0f, std::memory_order_acq_rel);
+            const double sq = levelSumSq_[ch].exchange(0.0, std::memory_order_acq_rel);
+
+            t.levels.peak_dbfs[ch] = (p > 1e-9f) ? 20.0f * std::log10(p) : -INFINITY;
+            t.levels.true_peak_dbtp[ch] = (tp > 1e-9f) ? 20.0f * std::log10(tp) : -INFINITY;
+            if (lFrames > 0 && sq > 1e-18) {
+                t.levels.rms_dbfs[ch] = static_cast<float>(10.0 * std::log10(sq / static_cast<double>(lFrames)));
+            } else {
+                t.levels.rms_dbfs[ch] = -INFINITY;
+            }
+        } else {
+            t.levels.peak_dbfs[ch] = -INFINITY;
+            t.levels.rms_dbfs[ch] = -INFINITY;
+            t.levels.true_peak_dbtp[ch] = -INFINITY;
+        }
+    }
+    if (v[kOpen]) t.has |= HRC_TELEMETRY_HAS_LEVELS;
+    else t.has &= ~HRC_TELEMETRY_HAS_LEVELS;
+
+    // Stages: everything but convolution is built; flags are published by SetEq / SetDsp.
     for (uint32_t i = 0; i < HRC_STAGE_COUNT; ++i) {
         t.stages[i] = hrc_stage_telemetry{0, 0, 1, 0};
     }
     t.stages[HRC_STAGE_PEQ].flags = peqFlags_.load(std::memory_order_acquire);
+    for (uint32_t i : {HRC_STAGE_REPLAYGAIN, HRC_STAGE_LINEAR_STYLE, HRC_STAGE_NONLINEAR, HRC_STAGE_SPATIAL,
+                       HRC_STAGE_LOUDNESS, HRC_STAGE_OUTPUT}) {
+        t.stages[i].flags = stageFlags_[i].load(std::memory_order_acquire);
+        t.stages[i].latency_frames = stageLatency_[i].load(std::memory_order_acquire);
+    }
+    t.stages[HRC_STAGE_NONLINEAR].oversample_factor = nonlinearOversample_.load(std::memory_order_acquire);
+    if (dspSlots_[activeDspSlot_.load(std::memory_order_acquire)].TakeClipped()) t.stages[HRC_STAGE_OUTPUT].flags |= HRC_STAGE_CLIPPED;
     t.has |= HRC_TELEMETRY_HAS_STAGES;
 
     t.counters.telemetry_dropped = rtRing_.Dropped() + outCheckRing_.Dropped() + decoderRing_.Dropped();
@@ -1135,9 +1949,11 @@ void PlaybackEngine::FillStatic(hrc_telemetry& t) noexcept {
     hrc_receipt& r = t.receipt;
     const bool compared = r.frames_compared > 0;
     const bool clean = t.counters.underruns == merger_.windowUnderrunsAtStart;
+    const DecoderRecord* receiptWindow = FindWindow(merger_.receiptWindow);
+    const bool mixed = receiptWindow != nullptr && receiptWindow->reason == WindowReason::Crossfade;
     if (!compared && r.first_mismatch_frame < 0) {
         r.grade = HRC_GRADE_NONE;
-    } else if (r.first_mismatch_frame >= 0 || !clean) {
+    } else if (r.first_mismatch_frame >= 0 || !clean || mixed) {   // a crossfade changes the samples
         r.grade = HRC_GRADE_BEST_EFFORT;
     } else if (o.kind == HRC_OUTPUT_B && o.backend == HRC_BACKEND_USB_EXCLUSIVE) {
         r.grade = HRC_GRADE_VERIFIED;
