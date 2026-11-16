@@ -1414,4 +1414,8 @@
     <string name="bit_perfect_status_inexact">%1$s · tam değil: bu kaynak kayıpsız PCM değil</string>
     <string name="bit_perfect_status_waiting">Desteklenen bir çıkışta kayıpsız parça bekleniyor</string>
     <string name="bit_perfect_status_unavailable">Bu parça için kullanılamıyor (%1$s)</string>
+    <string name="automix_overview">Automix genel bakış</string>
+    <string name="diwali_title">BitChord Mutlu bir Divali diler</string>
+    <string name="diwali_subtitle">Bu ışık festivali evinize neşe, günlerinize müzik doldursun.</string>
+    <string name="diwali_cta">Kutlayalım</string>
 </resources>
