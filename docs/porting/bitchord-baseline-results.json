@@ -189,5 +189,50 @@
       "provider accounts"
     ],
     "last_observed_playback": "paused"
+  },
+  "stabilization_2026_11_16": {
+    "tests": {
+      "app": {
+        "tests": 1259,
+        "failures": 0,
+        "skipped": 1
+      },
+      "shared_jvm": {
+        "tests": 122,
+        "failures": 0
+      },
+      "note": "17 LocaleStringsTest failures fixed by Antigravity's translations (4 keys per locale) plus one es string fix"
+    },
+    "lint": {
+      "before": {
+        "errors": 269,
+        "warnings": 700,
+        "hints": 5,
+        "tool": "AGP 8.10.1 lint 31.10 (Kotlin 2.1; metadata diagnostics)"
+      },
+      "after": {
+        "errors": 114,
+        "warnings": 708,
+        "hints": 5,
+        "tool": "lint 32.5.1 via android.experimental.lint.version=9.5.1; zero incompatible-metadata diagnostics"
+      },
+      "remaining_errors": {
+        "LocalContextGetResourceValueCall": 73,
+        "MissingQuantity (he, pl plurals)": 28,
+        "StateFlowValueCalledInComposition": 13
+      },
+      "fixed": [
+        "NewApi usbDevice at API<34 (BitPerfectOutput)",
+        "NewApi BluetoothDevice.alias at API<30",
+        "NewApi setOffloadMode/DelayPadding overrides",
+        "StringFormatInvalid es shelf_100_on_repeat",
+        "UnsafeOptInUsageError x150 via file-level media3 opt-in in 17 files"
+      ],
+      "tooling_noise": [
+        "FlowOperatorInvokedInComposition (AndroidPlayerHost) disappeared with newer lint",
+        "RuntimeShader NewApi: gated by isRuntimeShaderSupported(), targeted SuppressLint"
+      ]
+    },
+    "smoke_blocked": "Phone was locked behind a PIN/pattern; queue editing, lyrics and lifecycle not run. Updated dev APK installed with install -r --user 0."
   }
 }

@@ -20,6 +20,8 @@ internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
 
     private val runtimeShaders = mutableMapOf<String, RuntimeShader>()
 
+    // Every caller checks isRuntimeShaderSupported() (API 33) before drawing with a shader.
+    @android.annotation.SuppressLint("NewApi")
     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
         return runtimeShaders.getOrPut(key) { RuntimeShader(string) }
     }

@@ -118,7 +118,7 @@ internal object BitPerfectOutput {
         val attached = when (AppSettings.bitPerfectMode.value) {
             BitPerfectMode.OFF -> false
             BitPerfectMode.USB_ANDROID ->
-                Build.VERSION.SDK_INT >= 34 && audio?.let(MixerTransport::usbDevice) != null
+                Build.VERSION.SDK_INT >= 34 && audio?.let(::usbOutputDevice) != null
             // Android's own driver lets go of the DAC while this one streams,
             // so it is looked for as a USB device, not an audio output.
             BitPerfectMode.USB_DIRECT ->
@@ -204,7 +204,7 @@ internal object BitPerfectOutput {
             return false
         }
         val usbOutput = context.getSystemService(AudioManager::class.java)
-            ?.let(MixerTransport::usbDevice) != null
+            ?.let(::usbOutputDevice) != null
         if (usbOutput) directReleasedAtMs = 0L
         return !usbOutput
     }
@@ -335,7 +335,7 @@ internal object BitPerfectOutput {
         val mode = AppSettings.bitPerfectMode.value
         val deviceId = when (mode) {
             BitPerfectMode.USB_ANDROID ->
-                context.getSystemService(AudioManager::class.java)?.let(MixerTransport::usbDevice)?.id ?: NO_DEVICE
+                context.getSystemService(AudioManager::class.java)?.let(::usbOutputDevice)?.id ?: NO_DEVICE
             BitPerfectMode.USB_DIRECT ->
                 UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice)?.deviceId ?: NO_DEVICE
             else -> NO_DEVICE

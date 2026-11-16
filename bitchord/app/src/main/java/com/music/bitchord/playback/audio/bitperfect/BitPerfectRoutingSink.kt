@@ -12,6 +12,7 @@ package com.music.bitchord.playback.audio.bitperfect
 import android.media.AudioDeviceInfo
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.annotation.RequiresApi
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.Format
@@ -208,7 +209,9 @@ internal class BitPerfectRoutingSink(
     override fun setOutputStreamOffsetUs(outputStreamOffsetUs: Long) =
         both { it.setOutputStreamOffsetUs(outputStreamOffsetUs) }
     override fun setVolume(volume: Float) = both { it.setVolume(volume) }
+    @RequiresApi(29)
     override fun setOffloadMode(offloadMode: Int) = normal.setOffloadMode(offloadMode)
+    @RequiresApi(29)
     override fun setOffloadDelayPadding(delayInFrames: Int, paddingInFrames: Int) =
         normal.setOffloadDelayPadding(delayInFrames, paddingInFrames)
     override fun setAudioOutputProvider(audioOutputProvider: AudioOutputProvider) =

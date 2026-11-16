@@ -75,3 +75,10 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
 ## Paste into Antigravity
 
 > Open this repository root and read GEMINI.md, AGENTS.md, docs/handoff/CONTINUE_HERE.md and reports/Final implementation plan.md. Active app bitchord/, branch codex/bitchord-base. Claude coordinates build/lint and Git. Your immediate task is to resolve the 17 existing LocaleStringsTest completeness failures by adding accurate missing translations in bitchord/app/src/main/res/values-*/strings.xml only. Inspect each locale's missing keys and formatting before editing. Do not delete base keys, disable checks, redesign BitChord, touch build/native/Kotlin files or run Git mutations. Send Claude the exact modified files and request the focused locale check; let Claude run Gradle and operate the phone. Wait for coordinated scope before moving to another feature.
+
+## Update 2026-11-16 (Claude, milestone 1 stabilization)
+
+- Locale tests: Antigravity's translations verified; app 1,259 cases / 0 failed / 1 skipped, shared 122 / 0 failed.
+- Lint: `android.experimental.lint.version=9.5.1` (lint 32.5.1) in `bitchord/gradle.properties` removes the Kotlin metadata diagnostics under AGP 8.10.1 without touching compilation or the R8 pin. Errors 269 -> 114 (warnings 708). Genuine findings fixed (API guards, es format string, media3 opt-ins).
+- Still open: 73 LocalContextGetResourceValueCall, 13 StateFlowValueCalledInComposition (mostly MainActivity.kt), 28 MissingQuantity (Hebrew/Polish plural forms, Antigravity's area).
+- Not done: S24+ queue/lyrics/lifecycle smoke checks, because the phone was locked behind a PIN. Unlock it and rerun; updated dev APK is already installed.

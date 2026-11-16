@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.music.bitchord.ui.screens
 
 import com.music.bitchord.ui.icons.SfIcons

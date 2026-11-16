@@ -140,10 +140,7 @@ internal class MixerTransport private constructor(
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build()
 
-        fun usbDevice(manager: AudioManager): AudioDeviceInfo? =
-            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull {
-                it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
-            }
+        fun usbDevice(manager: AudioManager): AudioDeviceInfo? = usbOutputDevice(manager)
 
         /**
          * The format this DAC would open at for the track: its own when offered.
@@ -234,3 +231,14 @@ internal class MixerTransport private constructor(
         }
     }
 }
+
+/**
+ * The USB output Android currently exposes, or null. Lives outside
+ * [MixerTransport] (which is API 34+) because it only needs API 23, and the
+ * hand-back wait in [BitPerfectOutput.normalOutputPending] must behave the same
+ * on API 26-33 as on newer releases.
+ */
+internal fun usbOutputDevice(manager: AudioManager): AudioDeviceInfo? =
+    manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull {
+        it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+    }
