@@ -81,4 +81,4 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
 - Locale tests: Antigravity's translations verified; app 1,259 cases / 0 failed / 1 skipped, shared 122 / 0 failed.
 - Lint: `android.experimental.lint.version=9.5.1` (lint 32.5.1) in `bitchord/gradle.properties` removes the Kotlin metadata diagnostics under AGP 8.10.1 without touching compilation or the R8 pin. Errors 269 -> 114 (warnings 708). Genuine findings fixed (API guards, es format string, media3 opt-ins).
 - Still open: 73 LocalContextGetResourceValueCall, 13 StateFlowValueCalledInComposition (mostly MainActivity.kt), 28 MissingQuantity (Hebrew/Polish plural forms, Antigravity's area).
-- Not done: S24+ queue/lyrics/lifecycle smoke checks, because the phone was locked behind a PIN. Unlock it and rerun; updated dev APK is already installed.
+- S24+ smoke (done after unlock): queue removal, lyrics panel empty state, and background/screen-off lifecycle passed with no crashes. Synchronized lyrics remain unverified (device offline, test track has no lyrics); USB/bit-perfect and provider accounts also unverified.

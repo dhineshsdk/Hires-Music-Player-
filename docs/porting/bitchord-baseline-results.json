@@ -233,6 +233,19 @@
         "RuntimeShader NewApi: gated by isRuntimeShaderSupported(), targeted SuppressLint"
       ]
     },
-    "smoke_blocked": "Phone was locked behind a PIN/pattern; queue editing, lyrics and lifecycle not run. Updated dev APK installed with install -r --user 0."
+    "device_smoke": {
+      "build": "dev debug APK installed over existing install (install -r --user 0)",
+      "passed": [
+        "queue editing: removing the next track updated the queue and disabled skip-next",
+        "lyrics panel: honest 'No lyrics for this track / No lyrics found' state on a local file without lyrics",
+        "background lifecycle: after Home and 15 s screen-off, session stayed PLAYING with position advancing; foreground service type mediaPlayback (0x2); app restored on relaunch; no crash buffer entries or FATAL/ANR/VerifyError"
+      ],
+      "not_verified": [
+        "synchronized (timed) lyrics: device offline and test track has no lyrics",
+        "USB or bit-perfect fidelity",
+        "provider accounts"
+      ],
+      "end_state": "paused"
+    }
   }
 }
