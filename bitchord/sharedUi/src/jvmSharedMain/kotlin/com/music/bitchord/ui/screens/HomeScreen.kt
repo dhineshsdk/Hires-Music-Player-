@@ -190,17 +190,6 @@ fun HomeScreen(
             if (title != null) {
                 item { HomeTitle(title, festiveLogo = festiveLogo, onFestiveLogoClick = onFestiveLogoClick) }
             }
-            if (!signedIn && onSignIn != null) {
-                item {
-                    // Read in this item, so a scroll starting or ending
-                    // recomposes the banner alone.
-                    SignInBanner(
-                        onSignIn = onSignIn,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                        motion = LocalArtworkMotion.current && !listState.isScrollInProgress,
-                    )
-                }
-            }
             if (onTopPickClick != null) {
                 when {
                     !topPicks.isNullOrEmpty() -> item(key = "top-picks") {
@@ -241,6 +230,16 @@ fun HomeScreen(
                     if (loadingMore) feedMoreSkeleton()
                 }
             }
+            if (!signedIn && onSignIn != null) {
+                item(key = "sign-in-banner") {
+                    // Placed after Top Picks and shelves so Top Picks & Recently Played lead Home.
+                    SignInBanner(
+                        onSignIn = onSignIn,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                        motion = LocalArtworkMotion.current && !listState.isScrollInProgress,
+                    )
+                }
+            }
         }
     }
 
@@ -278,11 +277,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     onMoodsShowAll: () -> Unit = {},
     onStationClick: ((TopPick, String) -> Unit)? = null,
 ) {
-    val hasRecentsShelf = shelves.anyIndexedRecents()
-    if (!hasRecentsShelf && onStationClick != null) {
+    val firstIsRecents = shelves.firstOrNull()?.let {
+        it.title.equals(RECENTS_TITLE, ignoreCase = true) ||
+            it.title.equals("Recently played", ignoreCase = true)
+    } == true
+    if (!firstIsRecents && onStationClick != null) {
         item(key = "recently-played-stations") {
             RecentShelf(
-                shelf = HomeShelf(title = "Recently Played", items = emptyList(), layout = ShelfLayout.LIST),
+                shelf = HomeShelf(
+                    title = "Recently Played",
+                    items = shelves.firstOrNull()?.items.orEmpty().take(6),
+                    layout = ShelfLayout.LIST,
+                ),
                 onItemClick = { item -> onItemClick(item, "Recently Played") },
                 onItemLongPress = onItemLongPress,
                 onStationClick = onStationClick,
@@ -305,7 +311,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
                     shelf = shelf,
                     onItemClick = openItem,
                     onItemLongPress = onItemLongPress,
-                    onStationClick = onStationClick,
+                    onStationClick = if (index == 0) onStationClick else null,
                     currentSong = currentSong,
                     isPlaying = isPlaying,
                 )
@@ -321,9 +327,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
         }
     }
 }
-
-private fun List<HomeShelf>.anyIndexedRecents(): Boolean =
-    any { it.layout == ShelfLayout.LIST || it.title.equals(RECENTS_TITLE, ignoreCase = true) }
 
 @Composable
 private fun RecentShelf(

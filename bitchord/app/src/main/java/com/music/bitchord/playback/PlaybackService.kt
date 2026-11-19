@@ -552,16 +552,26 @@ class PlaybackService : MediaLibraryService() {
     private var currentAudioInputFormat: Format? = null
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            val hasActiveTrack = player?.let {
+                it.isPlaying || it.playWhenReady || it.currentMediaItem != null
+            } == true
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     com.music.bitchord.ui.standby.StandbyLockscreenController.onScreenOff(
                         context = this@PlaybackService,
-                        isPlaying = player?.isPlaying == true,
-                        isStillPlaying = { player?.isPlaying == true },
+                        isPlaying = hasActiveTrack,
+                        isStillPlaying = {
+                            player?.let {
+                                it.isPlaying || it.playWhenReady || it.currentMediaItem != null
+                            } == true
+                        },
                     )
                 }
                 Intent.ACTION_SCREEN_ON -> {
-                    com.music.bitchord.ui.standby.StandbyLockscreenController.cancelPendingLaunch()
+                    com.music.bitchord.ui.standby.StandbyLockscreenController.onScreenOn(
+                        context = this@PlaybackService,
+                        isPlaying = hasActiveTrack,
+                    )
                 }
             }
         }

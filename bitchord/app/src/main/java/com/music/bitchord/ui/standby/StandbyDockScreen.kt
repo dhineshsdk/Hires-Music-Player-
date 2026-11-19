@@ -255,6 +255,48 @@ internal fun resolveActiveLyricIndex(
     return lines.indexOfLast { it.timeMs <= adjustedPositionMs }
 }
 
+private fun formatLrcTimestamp(ms: Long): String {
+    val clamped = ms.coerceAtLeast(0L)
+    val totalSeconds = clamped / 1_000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    val centis = (clamped % 1_000L) / 10L
+    return String.format(Locale.ROOT, "[%02d:%02d.%02d]", minutes, seconds, centis)
+}
+
+internal fun buildTheatreLrcText(
+    song: Song?,
+    lyrics: List<LyricLine>?,
+    durationMs: Long,
+): String {
+    if (song == null) return ""
+    if (lyrics != null && lyrics.any { it.timeMs > 0L && it.text.isNotBlank() }) {
+        return lyrics.toLrc()
+    }
+    val spanMs = durationMs.takeIf { it > 0L } ?: 180_000L
+    val plainLines = lyrics.orEmpty()
+        .map { it.text.trim() }
+        .filter { it.isNotEmpty() }
+    if (plainLines.isNotEmpty()) {
+        val stepMs = (spanMs / plainLines.size.coerceAtLeast(1)).coerceIn(2_500L, 6_000L)
+        return plainLines.mapIndexed { index, text ->
+            "${formatLrcTimestamp(500L + index * stepMs)}$text"
+        }.joinToString("\n")
+    }
+    val phrases = listOfNotNull(
+        song.title.takeIf { it.isNotBlank() },
+        song.artist.takeIf { it.isNotBlank() },
+        song.albumName?.takeIf { it.isNotBlank() } ?: "AUREX HI-RES AUDIO",
+        song.title.takeIf { it.isNotBlank() }?.let { "♪  $it  ♪" },
+    ).ifEmpty { listOf("AUREX LYRIC THEATRE", "STAAAAANDBY VISUALIZER") }
+    val intervalMs = 4_000L
+    val count = ((spanMs / intervalMs).toInt()).coerceIn(phrases.size * 2, 120)
+    return (0 until count).joinToString("\n") { i ->
+        val phrase = phrases[i % phrases.size]
+        "${formatLrcTimestamp(500L + i * intervalMs)}$phrase"
+    }
+}
+
 /**
  * Fullscreen StaaaaandBy-inspired Dock Mode dialog mounted over the active player session without
  * reopening audio or altering DSP routing.
@@ -375,14 +417,13 @@ fun StandbyDockScreen(
             lines = lyrics,
         )
     }
-    val lrcText = remember(lyrics) {
-        lyrics?.takeIf { it.isNotEmpty() }?.toLrc().orEmpty()
+    val lrcText = remember(song?.videoId, song?.title, song?.artist, lyrics, durationMs) {
+        buildTheatreLrcText(song, lyrics, durationMs)
     }
     val canUseLyricTheatre = song != null &&
         !reducedMotion &&
         webViewHealthy &&
         providerKind != PlaybackProviderKind.SPOTIFY_APP_REMOTE &&
-        lyricsStatus == StandbyLyricsStatus.SYNCED &&
         lrcText.isNotBlank()
 
     val explicitRequested = preferredPresentationName?.let {
@@ -395,12 +436,17 @@ fun StandbyDockScreen(
             lyricsStatus == StandbyLyricsStatus.PLAIN -> StandbyPresentation.READING_ROOM
         else -> StandbyPresentation.GALLERY
     }
+    val requestedPresentation = explicitRequested ?: autoRequested
     val effectivePresentation = if (song == null) {
         StandbyPresentation.NIGHT_CLOCK
     } else {
         resolveEffectivePresentation(
-            requested = explicitRequested ?: autoRequested,
-            status = lyricsStatus,
+            requested = requestedPresentation,
+            status = if (canUseLyricTheatre && requestedPresentation == StandbyPresentation.LYRIC_THEATRE) {
+                StandbyLyricsStatus.SYNCED
+            } else {
+                lyricsStatus
+            },
             providerKind = providerKind,
             webViewHealthy = webViewHealthy && !reducedMotion,
         )
@@ -587,7 +633,7 @@ fun StandbyDockScreen(
                 if (activeSong != null && lrcText.isNotBlank()) {
                     StandbyLyricTheatre(
                         holder = lyricPageHolder,
-                        songKey = "${activeSong.videoId}|${activeSong.title}|${activeSong.artist}",
+                        songKey = "${activeSong.videoId}|${activeSong.title}|${activeSong.artist}|${lrcText.hashCode()}",
                         title = activeSong.title,
                         artist = activeSong.artist,
                         durationMs = durationMs,

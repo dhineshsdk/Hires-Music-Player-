@@ -1266,44 +1266,43 @@ private fun BitChordApp(
         }
     }
 
-    val currentPlayerSong by rememberUpdatedState(player.song)
-    val currentPlayerPlaying by rememberUpdatedState(player.isPlaying)
-    val currentLockscreenEnabled by rememberUpdatedState(lockscreenLyricsEnabled)
     val lockscreenTrigger by StandbyLockscreenController.triggers.collectAsStateWithLifecycle()
 
-    LaunchedEffect(lockscreenTrigger, player.song?.videoId) {
-        if (lockscreenTrigger > 0L && player.song != null) {
+    LaunchedEffect(lockscreenTrigger) {
+        if (lockscreenTrigger > 0L) {
             openedByLockscreen = true
             showStandbyDock = true
+            StandbyLockscreenController.consumeTrigger()
         }
     }
 
-    DisposableEffect(context, lockscreenLyricsEnabled, player.song?.videoId) {
+    DisposableEffect(context, lockscreenLyricsEnabled, player.song?.videoId, showStandbyDock) {
         (context as? android.app.Activity)?.let { act ->
-            setActivityShowWhenLocked(act, show = lockscreenLyricsEnabled && player.song != null)
+            setActivityShowWhenLocked(
+                act,
+                show = (lockscreenLyricsEnabled && player.song != null) || showStandbyDock,
+            )
         }
         onDispose {}
     }
 
+    val currentHasTrack by rememberUpdatedState(player.song != null || player.isPlaying)
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_OFF -> {
-                        val songNow = currentPlayerSong
-                        val playingNow = currentPlayerPlaying
-                        val enabledNow = currentLockscreenEnabled
-                        val sinceVisible = android.os.SystemClock.elapsedRealtime() -
-                            StandbyLockscreenController.lastVisibleAtElapsedMs
-                        if (enabledNow &&
-                            playingNow &&
-                            songNow != null &&
-                            !StandbyLockscreenController.isCurrentlyVisible &&
-                            sinceVisible >= 3_000L
-                        ) {
-                            openedByLockscreen = true
-                            showStandbyDock = true
-                        }
+                        StandbyLockscreenController.onScreenOff(
+                            context = ctx,
+                            isPlaying = currentHasTrack,
+                            isStillPlaying = { currentHasTrack },
+                        )
+                    }
+                    Intent.ACTION_SCREEN_ON -> {
+                        StandbyLockscreenController.onScreenOn(
+                            context = ctx,
+                            isPlaying = currentHasTrack,
+                        )
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         if (openedByLockscreen) {
@@ -1319,6 +1318,7 @@ private fun BitChordApp(
             receiver,
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
@@ -4303,16 +4303,14 @@ private fun BitChordApp(
                                                 homeMoreMenuOpen = false
                                             },
                                         )
-                                        if (player.song != null) {
-                                            DropdownMenuItem(
-                                                text = { Text("Launch Lock-Screen Lyric Showcase") },
-                                                onClick = {
-                                                    homeMoreMenuOpen = false
-                                                    openedByLockscreen = false
-                                                    showStandbyDock = true
-                                                },
-                                            )
-                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Launch Lock-Screen Lyric Showcase") },
+                                            onClick = {
+                                                homeMoreMenuOpen = false
+                                                openedByLockscreen = false
+                                                showStandbyDock = true
+                                            },
+                                        )
                                         if (!Settings.canDrawOverlays(context)) {
                                             DropdownMenuItem(
                                                 text = { Text("Allow Lock-Screen Overlay") },
@@ -5041,18 +5039,24 @@ private fun BitChordApp(
             }
         }
 
-        if (showStandbyDock && playerSong != null) {
+        if (showStandbyDock) {
+            val dockSong = playerSong ?: Song(
+                videoId = "aurex:showcase",
+                title = "Aurex Lyric Theatre",
+                artist = "StaaaaandBy Visualizer",
+                thumbnailUrl = null,
+            )
             val dockArtworkUrl = rememberRemoteArtworkUrl(playerSong)
             val dockLyricsOffsetMs by AppSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
             StandbyDockDialog(
-                song = playerSong,
+                song = dockSong,
                 artworkUrl = dockArtworkUrl,
-                isPlaying = player.isPlaying,
+                isPlaying = if (playerSong != null) player.isPlaying else true,
                 position = player.position,
-                durationMs = player.durationMs,
-                lyrics = lyrics,
-                lyricsChecked = lyricsChecked,
-                lyricsEnabled = syncedLyricsEnabled && lyricsSources.isNotEmpty(),
+                durationMs = if (playerSong != null) player.durationMs else 180_000L,
+                lyrics = if (playerSong != null) lyrics else null,
+                lyricsChecked = if (playerSong != null) lyricsChecked else true,
+                lyricsEnabled = if (playerSong != null) syncedLyricsEnabled && lyricsSources.isNotEmpty() else true,
                 lyricsOffsetMs = dockLyricsOffsetMs,
                 onSeek = { target ->
                     val duration = player.durationMs

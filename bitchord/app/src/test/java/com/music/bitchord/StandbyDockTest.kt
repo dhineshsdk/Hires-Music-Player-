@@ -7,6 +7,7 @@ import com.music.bitchord.playback.provider.PlaybackProviderKind
 import com.music.bitchord.ui.standby.StandbyArtColors
 import com.music.bitchord.ui.standby.StandbyLyricsStatus
 import com.music.bitchord.ui.standby.StandbyPresentation
+import com.music.bitchord.ui.standby.buildTheatreLrcText
 import com.music.bitchord.ui.standby.classifyStandbyLyrics
 import com.music.bitchord.ui.standby.computeAdjustedLyricsPositionMs
 import com.music.bitchord.ui.standby.computeLyricsSeekTargetMs
@@ -319,5 +320,38 @@ class StandbyDockTest {
         } finally {
             tempRoot.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `buildTheatreLrcText preserves synced and synthesizes plain or track showcase LRC`() {
+        val song = Song(
+            videoId = "yt:demo",
+            title = "Powerhouse x Disco",
+            artist = "Anirudh Ravichander",
+            thumbnailUrl = null,
+            albumName = "Coolie",
+        )
+        assertEquals("", buildTheatreLrcText(null, null, 120_000L))
+
+        val syncedLrc = buildTheatreLrcText(
+            song,
+            listOf(LyricLine(2_000L, "First synced line")),
+            120_000L,
+        )
+        assertTrue(syncedLrc.contains("First synced line"))
+        assertTrue(syncedLrc.contains("[00:02.00]"))
+
+        val plainLrc = buildTheatreLrcText(
+            song,
+            listOf(LyricLine(0L, "Plain chorus"), LyricLine(0L, "Second verse")),
+            120_000L,
+        )
+        assertTrue(plainLrc.contains("[00:00.50]Plain chorus"))
+        assertTrue(plainLrc.contains("Second verse"))
+
+        val fallbackLrc = buildTheatreLrcText(song, emptyList(), 16_000L)
+        assertTrue(fallbackLrc.contains("Powerhouse x Disco"))
+        assertTrue(fallbackLrc.contains("Anirudh Ravichander"))
+        assertTrue(fallbackLrc.contains("Coolie"))
     }
 }

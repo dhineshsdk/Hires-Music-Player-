@@ -132,7 +132,7 @@ internal fun StandbyLyricTheatre(
     val effectivePlayheadKey = "${position.positionMs}:${position.sampledAtNanos}:${position.advancing}:$lyricsOffsetMs"
     LaunchedEffect(ready, songKey, isPlaying, effectivePlayheadKey) {
         if (ready) {
-            val activePlaying = isPlaying && position.advancing
+            val activePlaying = isPlaying && (position.advancing || position.sampledAtNanos == 0L)
             val extraMs = if (activePlaying && position.sampledAtNanos > 0L) {
                 (System.nanoTime() - position.sampledAtNanos).coerceAtLeast(0L) / 1_000_000L
             } else {
@@ -140,7 +140,7 @@ internal fun StandbyLyricTheatre(
             }
             val rawPos = position.positionMs.coerceAtLeast(0L) + extraMs
             val adjustedPos = (rawPos - lyricsOffsetMs.toLong()).coerceAtLeast(0L)
-            page.setAnchor(positionMs = adjustedPos, playing = activePlaying, speed = 1f)
+            page.setAnchor(positionMs = adjustedPos, playing = isPlaying, speed = 1f)
         }
     }
 }
