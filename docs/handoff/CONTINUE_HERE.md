@@ -127,4 +127,17 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
   - `BUILD SUCCESSFUL` (`0` lint errors, `709` warnings, `6` hints).
   - `:app:testDevDebugUnitTest`: **1,272** tests total, **0 failed**, **0 errors**, **1 skipped** (`GeniusTest` live network test); `StandbyDockTest` **7/7 passed**.
   - `:shared:jvmTest`: **122** tests total, **0 failed**, **0 skipped**, **0 errors**.
-  - **Device note:** Galaxy S24+ wireless ADB was offline during Stage 3B/3C completion (`adb devices -l` returned empty after starting ADB server + 8s discovery wait; Stage 3A was previously installed and launched on `SM_S926B` at `a373bb1`). Live S24+ verification of Reading Room + JIZURA Lyric Theatre remains queued for when wireless/USB ADB is reconnected.
+  - **Device note:** Galaxy S24+ wireless ADB was offline during Stage 3B/3C completion (`adb devices -l` returned empty after starting ADB server + 8s discovery wait; Stage 3A was previously installed and launched on `SM_S926B` at `a373bb1`). Live S24+ verification was completed in the follow-up update below.
+
+## Update 2026-11-19 (Home Hero Grid, Speaker Hi-Res/Atmos Unlock, Aurex Concept 1 Icon & S24+ Launch)
+
+- **Minimalist 2-Column Hero Grid (`3fc0d06`):**
+  - Updated `RecentShelf` in `sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/HomeScreen.kt` with `RecentHeroGrid` / `RecentHeroCard` (2×2 full-bleed square artwork cards for top 4 Recents items with gradient scrims, quick-play/playing-bars pill, and `⋯` menu button, flowing remaining items into the horizontal pager below).
+- **Phone Speaker Lossless Unlock & `AudioFormatPriority` (`3fc0d06`):**
+  - Added `AppSettings.allowLosslessOnAllOutputs` (default `true`, unlocking `SourceConfig.awaitsLosslessOutput` on phone speakers & all earphones) and `AppSettings.audioFormatPriority` (`DOLBY_ATMOS_FIRST`, `HIRES_FLAC_FIRST`, `LOSSLESS_STEREO_FIRST`) respected by `SourceResolver.isBetter` / `worthSwapping` / `isHiResLossless`.
+  - Added the **"Hi-Res, Dolby Atmos & Personal Addons"** group in `SourcesScreen.kt` (speaker lossless switch, format priority cycler, addon health/output status badge, and quick preset for Qobuz/Tidal/Deezer personal addons); added unit tests in `AddonPolicyTest.kt` (`13/13` passed).
+- **Aurex Molten Gold Harmonic `'A'` Icon (`2e37726`):**
+  - Applied Concept 1 across `ic_launcher_background.xml`, `ic_launcher_foreground.xml`, `ic_launcher_monochrome.xml`, `mipmap-anydpi/*`, `ic_logo.xml` (`app` + `sharedUi`), `ic_notification_logo.xml`, and all `27` selectable `AppIcon` mipmap PNGs across all `5` densities (`mdpi`–`xxxhdpi`).
+- **Verification & Galaxy S24+ (`SM_S926B`) Install:**
+  - `./gradlew.bat :app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug '-Pbitchord.bundleWear=false' --console=plain`: `BUILD SUCCESSFUL`; `:app:testDevDebugUnitTest` **1,274** tests (**0 failed**, **1 skipped**), `:shared:jvmTest` **122** tests (**0 failed**), `:app:lintDevDebug` **0 errors** (`711` warnings, `6` hints).
+  - Installed `bitchord/app/build/outputs/apk/dev/debug/app-dev-arm64-v8a-debug.apk` (`com.aurex.music.dev`) over wireless ADB (`adb-RZCY2069HBL-Is7j9k (2)._adb-tls-connect._tcp`): `install -r --user 0: Success`, `cmd package compile -m verify -f com.aurex.music.dev: Success`, cold launch `MainActivity` (`Status: ok`, `LaunchState: COLD`, `TotalTime: 988 ms`, `WaitTime: 1001 ms`, `PID: 11349`) with empty `AndroidRuntime:E` / `System.err:W` logcat.
