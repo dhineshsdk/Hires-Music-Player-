@@ -112,3 +112,19 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
     - **Milestone 4–5:** Unified Multi-Source Library (with local-store Room migration + Spotify Web API OAuth replacing `sp_dc`) and Drive/Telegram `SeekableSource` + Offline Recovery.
     - **Milestone 6 — Hybrid Best-of-Both Audio Engine:** Keeps `bitchord/`'s Media3 precision/bit-perfect sinks, single `libusb` USB DAC driver + hardware `-40 dB` safety volume, SVF EQ, per-track loudness, and DSD/DST; ports `src/`'s C++20 64-bit mastering DSP (Tube/Tape/R2R/ISO-226), Vulkan UPOLS IR convolver, USB HID PEQ (FreeDSP/WalkPlay), UAC2 stalled-clock rate probe, NEON Forensic Auditor, Exynos 2400 ADPF/cluster pinning, and `libsoxr`/FFmpeg without duplicating the USB driver.
     - **Milestone 7–8:** Selected Donor Improvements & Icon Polish, and Release Validation.
+
+## Update 2026-11-19 (Milestone 3 — StaaaaandBy Lock-Screen & Fullscreen Lyric Showcase + Dock Mode)
+
+- **Stage 3A (`a373bb1`):**
+  - Added bundled variable `fira_code.ttf` + MIT/OFL license notices (`StaaaaandBy-MIT.txt`, `FiraCode-OFL.txt`), `StandbyArtColors.kt` (`SlitScanArtwork` progress & 16-step Lissajous AMOLED burn-in shift), and `StandbyDockScreen.kt` **Gallery** + **Night Clock** (`CLOCK_ONLY_BRIGHTNESS = 0.05f`, Bedside Lock, 3-zone tap gestures, 5-minute paused-on-battery wake lock timeout), plus "Dock Mode" entry in `SongActionsMenu` / `MainActivity` and 20 locale translations for `standby_dock_mode`.
+  - Verified build, unit tests (`1,268` app tests / `0` failed / `1` pre-existing skip; `122` shared tests), `0` lint errors, and Galaxy S24+ (`SM_S926B`) install & cold launch (`798 ms`).
+- **Stages 3B + 3C (Reading Room, Offline Lyrics Cache & MIT JIZURA Lyric Theatre):**
+  - Added `StandbyLyricsCache.kt` (`filesDir/standby_lyrics_cache`, atomic `*.tmp` -> `renameTo`, SHA-256 keys, LRU 200 entries, plain/LRC/TTML parsing, adjacent `.lrc` / `.ttml` / `lyrics.lrc` sidecar resolution) wired into `EmbeddedLyrics.kt` and `MainViewModel.kt`.
+  - Bundled MIT `JIZURA` lyric canvas runtime (`assets/lyric/*` + `assets/licenses/JIZURA-MIT.txt`) with external Google Fonts links/fetches removed and replaced by bundled `/res/font/fira_code.ttf` + system CJK/Roboto, served strictly from `https://appassets.androidplatform.net/` inside `StandbyLyricTheatre.kt` (`blockNetworkLoads = true`, `shouldOverrideUrlLoading = true`, main-frame error and `onRenderProcessGone` fallback to Reading Room).
+  - Extracted dual dark/light WCAG-verified album artwork schemes in `StandbyArtColors.schemesJsonFor`, and enforced Spotify Developer Policy gating in `resolveEffectivePresentation` so `SPOTIFY_APP_REMOTE` tracks never overlay Lyric Theatre (falling back to Reading Room / Gallery).
+  - Implemented all 4 Dock presentations (**Gallery**, **Reading Room**, **Lyric Theatre**, **Night Clock**) across Portrait and Landscape in `StandbyDockScreen.kt` (synced Reading Room auto-scroll, backing vocals, tap-to-seek honoring `AppSettings.lyricsOffsetMs` + `SEEK_END_GUARD_MS`, JIZURA style reroll button, `Gallery | Lyrics | Theatre` mode chip switcher) wired into `MainActivity.kt`.
+- **Verification (`:app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug`):**
+  - `BUILD SUCCESSFUL` (`0` lint errors, `709` warnings, `6` hints).
+  - `:app:testDevDebugUnitTest`: **1,272** tests total, **0 failed**, **0 errors**, **1 skipped** (`GeniusTest` live network test); `StandbyDockTest` **7/7 passed**.
+  - `:shared:jvmTest`: **122** tests total, **0 failed**, **0 skipped**, **0 errors**.
+  - **Device note:** Galaxy S24+ wireless ADB was offline during Stage 3B/3C completion (`adb devices -l` returned empty after starting ADB server + 8s discovery wait; Stage 3A was previously installed and launched on `SM_S926B` at `a373bb1`). Live S24+ verification of Reading Room + JIZURA Lyric Theatre remains queued for when wireless/USB ADB is reconnected.

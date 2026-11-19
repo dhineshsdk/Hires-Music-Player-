@@ -3,6 +3,8 @@ package com.music.bitchord.ui.standby
 import android.graphics.Bitmap
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
+import com.music.bitchord.data.lyrics.LyricLine
+import com.music.bitchord.playback.provider.PlaybackProviderKind
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -10,6 +12,66 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
+
+enum class StandbyLyricsStatus {
+    DISABLED,
+    LOADING,
+    SYNCED,
+    PLAIN,
+    INSTRUMENTAL,
+    UNAVAILABLE,
+}
+
+enum class StandbyPresentation {
+    GALLERY,
+    READING_ROOM,
+    LYRIC_THEATRE,
+    NIGHT_CLOCK,
+}
+
+internal fun classifyStandbyLyrics(
+    lyricsEnabled: Boolean,
+    lyricsChecked: Boolean,
+    lines: List<LyricLine>?,
+): StandbyLyricsStatus = when {
+    !lyricsEnabled -> StandbyLyricsStatus.DISABLED
+    !lyricsChecked && lines.isNullOrEmpty() -> StandbyLyricsStatus.LOADING
+    lines.isNullOrEmpty() -> StandbyLyricsStatus.UNAVAILABLE
+    lines.all { it.text.isBlank() } -> StandbyLyricsStatus.INSTRUMENTAL
+    lines.any { it.timeMs > 0L } -> StandbyLyricsStatus.SYNCED
+    else -> StandbyLyricsStatus.PLAIN
+}
+
+internal fun resolveEffectivePresentation(
+    requested: StandbyPresentation,
+    status: StandbyLyricsStatus,
+    providerKind: PlaybackProviderKind,
+    webViewHealthy: Boolean,
+): StandbyPresentation = when (requested) {
+    StandbyPresentation.NIGHT_CLOCK -> StandbyPresentation.NIGHT_CLOCK
+    StandbyPresentation.LYRIC_THEATRE -> when {
+        // Spotify Developer Policy: do not overlay Spotify SDK playback with animated lyric video.
+        providerKind == PlaybackProviderKind.SPOTIFY_APP_REMOTE ->
+            if (status == StandbyLyricsStatus.SYNCED || status == StandbyLyricsStatus.PLAIN) {
+                StandbyPresentation.READING_ROOM
+            } else {
+                StandbyPresentation.GALLERY
+            }
+        !webViewHealthy || status != StandbyLyricsStatus.SYNCED ->
+            if (status == StandbyLyricsStatus.SYNCED ||
+                status == StandbyLyricsStatus.PLAIN ||
+                status == StandbyLyricsStatus.LOADING
+            ) {
+                StandbyPresentation.READING_ROOM
+            } else {
+                StandbyPresentation.GALLERY
+            }
+        else -> StandbyPresentation.LYRIC_THEATRE
+    }
+    StandbyPresentation.READING_ROOM ->
+        if (status == StandbyLyricsStatus.DISABLED) StandbyPresentation.GALLERY else StandbyPresentation.READING_ROOM
+    StandbyPresentation.GALLERY -> StandbyPresentation.GALLERY
+}
 
 /**
  * WCAG contrast-verified color scheme extracted from album artwork for Dock Mode and

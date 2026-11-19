@@ -65,16 +65,27 @@ object EmbeddedLyrics {
      * Touches the filesystem, so it runs on [Dispatchers.IO] regardless of
      * where it is called from.
      */
-    suspend fun forUri(context: Context, uriString: String): List<LyricLine>? =
+    suspend fun forUri(
+        context: Context,
+        uriString: String,
+        localPath: String? = null,
+    ): List<LyricLine>? =
         withContext(Dispatchers.IO) {
-            val raw = runCatching { read(context, Uri.parse(uriString)) }
-                .onFailure { Log.d(TAG, "no embedded lyrics in $uriString: ${it.message}") }
-                .getOrNull()
-                ?: return@withContext null
-            // The same last pass the network sources get, so a downloaded track
-            // and a streamed one draw their backing vocals the same way.
-            LrcLib.parseLrc(raw).takeIf { lines -> lines.any { it.text.isNotBlank() } }
-                ?.withBackgroundVocals()
+            val uri = uriString.takeIf { it.isNotBlank() }?.let(Uri::parse)
+            val raw = uri?.let {
+                runCatching { read(context, it) }
+                    .onFailure { err -> Log.d(TAG, "no embedded lyrics in $uriString: ${err.message}") }
+                    .getOrNull()
+            }
+            if (raw != null) {
+                // The same last pass the network sources get, so a downloaded track
+                // and a streamed one draw their backing vocals the same way.
+                val parsed = LrcLib.parseLrc(raw).takeIf { lines -> lines.any { it.text.isNotBlank() } }
+                    ?.withBackgroundVocals()
+                if (parsed != null) return@withContext parsed
+            }
+            val resolvedPath = localPath ?: uri?.path?.takeIf { uri.scheme == "file" }
+            StandbyLyricsCache.adjacentSidecarForPath(resolvedPath)
         }
 
     /** The raw LRC text for the file, preferring this app's word-timed field. */

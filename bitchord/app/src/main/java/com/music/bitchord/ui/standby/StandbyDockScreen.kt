@@ -11,16 +11,20 @@ import android.view.Window
 import android.view.WindowManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,7 +32,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,9 +47,11 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MotionPhotosOff
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SlowMotionVideo
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -60,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -69,6 +80,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -81,6 +93,8 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
@@ -98,6 +112,8 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
 import com.music.bitchord.R
+import com.music.bitchord.data.lyrics.LyricLine
+import com.music.bitchord.data.lyrics.toLrc
 import com.music.bitchord.data.model.PLAYER_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
@@ -209,6 +225,36 @@ internal fun standbySourceBadge(song: Song?): String {
     }
 }
 
+internal fun computeAdjustedLyricsPositionMs(
+    positionMs: Long,
+    sampledAtNano: Long,
+    nowNano: Long,
+    isPlaying: Boolean,
+    offsetMs: Int,
+): Long {
+    val extraMs = if (isPlaying && sampledAtNano > 0L) {
+        (nowNano - sampledAtNano).coerceAtLeast(0L) / 1_000_000L
+    } else {
+        0L
+    }
+    val rawPos = positionMs.coerceAtLeast(0L) + extraMs
+    return (rawPos - offsetMs.toLong()).coerceAtLeast(0L)
+}
+
+internal fun computeLyricsSeekTargetMs(
+    lineTimeMs: Long,
+    offsetMs: Int,
+): Long = (lineTimeMs + offsetMs.toLong()).coerceAtLeast(0L)
+
+internal fun resolveActiveLyricIndex(
+    lines: List<LyricLine>,
+    adjustedPositionMs: Long,
+): Int {
+    if (lines.isEmpty()) return -1
+    if (adjustedPositionMs < lines.first().timeMs) return -1
+    return lines.indexOfLast { it.timeMs <= adjustedPositionMs }
+}
+
 /**
  * Fullscreen StaaaaandBy-inspired Dock Mode dialog mounted over the active player session without
  * reopening audio or altering DSP routing.
@@ -220,6 +266,11 @@ fun StandbyDockDialog(
     isPlaying: Boolean,
     position: PlaybackPosition,
     durationMs: Long,
+    lyrics: List<LyricLine>? = null,
+    lyricsChecked: Boolean = true,
+    lyricsEnabled: Boolean = true,
+    lyricsOffsetMs: Int = 0,
+    onSeek: (Long) -> Unit = {},
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -246,6 +297,11 @@ fun StandbyDockDialog(
             position = position,
             durationMs = durationMs,
             sourceBadgeText = standbySourceBadge(song),
+            lyrics = lyrics,
+            lyricsChecked = lyricsChecked,
+            lyricsEnabled = lyricsEnabled,
+            lyricsOffsetMs = lyricsOffsetMs,
+            onSeek = onSeek,
             window = dialogWindow,
             bedsideLocked = bedsideLocked,
             onBedsideLockedChange = { bedsideLocked = it },
@@ -265,6 +321,11 @@ fun StandbyDockScreen(
     position: PlaybackPosition,
     durationMs: Long,
     sourceBadgeText: String,
+    lyrics: List<LyricLine>? = null,
+    lyricsChecked: Boolean = true,
+    lyricsEnabled: Boolean = true,
+    lyricsOffsetMs: Int = 0,
+    onSeek: (Long) -> Unit = {},
     window: Window? = null,
     bedsideLocked: Boolean = false,
     onBedsideLockedChange: (Boolean) -> Unit = {},
@@ -277,13 +338,56 @@ fun StandbyDockScreen(
     val view = LocalView.current
     val now by rememberDockCurrentTime()
     val battery by rememberDockBatteryStatus()
-    var nightClockMode by rememberSaveable { mutableStateOf(false) }
+    var preferredPresentationName by rememberSaveable { mutableStateOf<String?>(null) }
     var reducedMotion by rememberSaveable { mutableStateOf(false) }
     var hudVisible by rememberSaveable { mutableStateOf(true) }
+    var hudInteractionTick by remember { mutableStateOf(0) }
     var lockHintVisible by remember { mutableStateOf(false) }
     var pausedTimedOut by remember { mutableStateOf(false) }
+    var webViewHealthy by remember { mutableStateOf(true) }
 
-    val effectiveNightClock = nightClockMode || song == null
+    val lyricPageHolder = rememberStandbyLyricPageHolder()
+    val providerKind = remember(song?.videoId) {
+        song?.let { ProviderTrackId.classify(it.videoId) } ?: PlaybackProviderKind.NATIVE_STREAM
+    }
+    val lyricsStatus = remember(lyricsEnabled, lyricsChecked, lyrics) {
+        classifyStandbyLyrics(
+            lyricsEnabled = lyricsEnabled,
+            lyricsChecked = lyricsChecked,
+            lines = lyrics,
+        )
+    }
+    val lrcText = remember(lyrics) {
+        lyrics?.takeIf { it.isNotEmpty() }?.toLrc().orEmpty()
+    }
+    val canUseLyricTheatre = song != null &&
+        !reducedMotion &&
+        webViewHealthy &&
+        providerKind != PlaybackProviderKind.SPOTIFY_APP_REMOTE &&
+        lyricsStatus == StandbyLyricsStatus.SYNCED &&
+        lrcText.isNotBlank()
+
+    val explicitRequested = preferredPresentationName?.let {
+        runCatching { StandbyPresentation.valueOf(it) }.getOrNull()
+    }
+    val autoRequested = when {
+        song == null -> StandbyPresentation.NIGHT_CLOCK
+        canUseLyricTheatre -> StandbyPresentation.LYRIC_THEATRE
+        lyricsStatus == StandbyLyricsStatus.SYNCED ||
+            lyricsStatus == StandbyLyricsStatus.PLAIN -> StandbyPresentation.READING_ROOM
+        else -> StandbyPresentation.GALLERY
+    }
+    val effectivePresentation = if (song == null) {
+        StandbyPresentation.NIGHT_CLOCK
+    } else {
+        resolveEffectivePresentation(
+            requested = explicitRequested ?: autoRequested,
+            status = lyricsStatus,
+            providerKind = providerKind,
+            webViewHealthy = webViewHealthy && !reducedMotion,
+        )
+    }
+    val effectiveNightClock = effectivePresentation == StandbyPresentation.NIGHT_CLOCK
     val keepScreenOn = !pausedTimedOut && (isPlaying || battery.isCharging || effectiveNightClock)
 
     // Scoped paused-on-battery timeout so idle Dock Mode never drains battery overnight.
@@ -296,7 +400,7 @@ fun StandbyDockScreen(
         }
     }
 
-    LaunchedEffect(hudVisible, bedsideLocked) {
+    LaunchedEffect(hudVisible, bedsideLocked, hudInteractionTick) {
         if (hudVisible && !bedsideLocked) {
             delay(HUD_AUTO_HIDE_MS)
             hudVisible = false
@@ -321,9 +425,11 @@ fun StandbyDockScreen(
         }
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window?.attributes = window?.attributes?.apply {
-                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window?.let { win ->
+                win.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                win.attributes = win.attributes.apply {
+                    screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
             }
         }
     }
@@ -368,11 +474,13 @@ fun StandbyDockScreen(
     val layout = if (isPortrait) PortraitDockLayout else LandscapeDockLayout
     val currentSong by rememberUpdatedState(song)
     val lockedState by rememberUpdatedState(bedsideLocked)
-    val nightState by rememberUpdatedState(nightClockMode)
+    val nightState by rememberUpdatedState(effectiveNightClock)
     val currentDismiss by rememberUpdatedState(onDismiss)
     val currentPlayPause by rememberUpdatedState(onPlayPause)
     val currentNext by rememberUpdatedState(onNext)
     val currentPrev by rememberUpdatedState(onPrevious)
+    val currentSeek by rememberUpdatedState(onSeek)
+    val currentOffsetMs by rememberUpdatedState(lyricsOffsetMs)
 
     // Minute-by-minute pixel shift to prevent S24+ AMOLED burn-in on clock/meta overlays.
     val elapsedMinutes = (now.hour * 60L) + now.minute
@@ -381,9 +489,52 @@ fun StandbyDockScreen(
     }
 
     val activeArt = coverBitmap?.takeUnless { effectiveNightClock || it.isRecycled }
-    val onArtColor = remember(activeArt) {
-        activeArt?.let { if (StandbyArtColors.isArtworkBright(it)) TextOnLight else TextPrimary }
-            ?: TextPrimary
+    val onArtColor = remember(activeArt, effectivePresentation) {
+        when (effectivePresentation) {
+            StandbyPresentation.LYRIC_THEATRE,
+            StandbyPresentation.READING_ROOM,
+            StandbyPresentation.NIGHT_CLOCK -> TextPrimary
+            StandbyPresentation.GALLERY ->
+                activeArt?.let { if (StandbyArtColors.isArtworkBright(it)) TextOnLight else TextPrimary }
+                    ?: TextPrimary
+        }
+    }
+
+    val readingAdjustedPosMs by produceState(
+        initialValue = computeAdjustedLyricsPositionMs(
+            positionMs = position.positionMs,
+            sampledAtNano = position.sampledAtNanos,
+            nowNano = System.nanoTime(),
+            isPlaying = isPlaying && position.advancing,
+            offsetMs = lyricsOffsetMs,
+        ),
+        effectivePresentation,
+        lyricsStatus,
+        song?.videoId,
+        isPlaying,
+        position.positionMs,
+        position.sampledAtNanos,
+        position.advancing,
+        lyricsOffsetMs,
+    ) {
+        fun sampleNow(): Long = computeAdjustedLyricsPositionMs(
+            positionMs = position.positionMs,
+            sampledAtNano = position.sampledAtNanos,
+            nowNano = System.nanoTime(),
+            isPlaying = isPlaying && position.advancing,
+            offsetMs = lyricsOffsetMs,
+        )
+        value = sampleNow()
+        if (effectivePresentation == StandbyPresentation.READING_ROOM &&
+            lyricsStatus == StandbyLyricsStatus.SYNCED &&
+            isPlaying &&
+            position.advancing
+        ) {
+            while (true) {
+                delay(100L)
+                value = sampleNow()
+            }
+        }
     }
 
     Box(
@@ -401,6 +552,7 @@ fun StandbyDockScreen(
                         return@detectTapGestures
                     }
                     hudVisible = true
+                    hudInteractionTick++
                     if (nightState) return@detectTapGestures
                     val third = size.width / 3f
                     when {
@@ -411,174 +563,404 @@ fun StandbyDockScreen(
                 }
             },
     ) {
-        if (activeArt != null) {
-            val pausedSeekKey = if (!isPlaying || !position.advancing || reducedMotion) {
-                position.positionMs
-            } else {
-                0L
-            }
-            val progressState = produceState(
-                initialValue = StandbyArtColors.computeSlitProgress(
-                    positionMs = position.positionMs,
-                    sampledAtNano = position.sampledAtNanos,
-                    nowNano = System.nanoTime(),
-                    durationMs = durationMs,
-                    isPlaying = isPlaying && position.advancing,
-                ),
-                song?.videoId,
-                durationMs,
-                isPlaying,
-                position.advancing,
-                reducedMotion,
-                pausedSeekKey,
-            ) {
-                if (reducedMotion || !isPlaying || !position.advancing || durationMs <= 0L) {
-                    value = StandbyArtColors.computeSlitProgress(
-                        positionMs = position.positionMs,
-                        sampledAtNano = position.sampledAtNanos,
-                        nowNano = System.nanoTime(),
+        when (effectivePresentation) {
+            StandbyPresentation.LYRIC_THEATRE -> {
+                val activeSong = song
+                if (activeSong != null && lrcText.isNotBlank()) {
+                    StandbyLyricTheatre(
+                        holder = lyricPageHolder,
+                        songKey = "${activeSong.videoId}|${activeSong.title}|${activeSong.artist}",
+                        title = activeSong.title,
+                        artist = activeSong.artist,
                         durationMs = durationMs,
-                        isPlaying = false,
+                        lrcText = lrcText,
+                        artBitmap = activeArt,
+                        isPlaying = isPlaying,
+                        position = position,
+                        lyricsOffsetMs = lyricsOffsetMs,
+                        onHealthyChanged = { webViewHealthy = it },
+                        modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    while (true) {
-                        withFrameMillis {
+                }
+
+                DockCornerClock(
+                    now = now,
+                    battery = battery,
+                    isPortrait = isPortrait,
+                    color = TextPrimary,
+                    shadow = OverlayShadow,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .offset { IntOffset(shiftX / 2, shiftY / 2) }
+                        .padding(
+                            start = if (isPortrait) 20.dp else 28.dp,
+                            top = if (isPortrait) 16.dp else 20.dp,
+                        ),
+                )
+
+                song?.let { current ->
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .windowInsetsPadding(WindowInsets.displayCutout)
+                            .offset { IntOffset(shiftX / 2, shiftY / 2) }
+                            .padding(
+                                start = if (isPortrait) 20.dp else 28.dp,
+                                bottom = if (isPortrait) 24.dp else 24.dp,
+                                end = if (hudVisible && !bedsideLocked) 172.dp else 28.dp,
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        activeArt?.let { bmp ->
+                            DockCoverThumb(art = bmp, size = 54.dp)
+                        }
+                        DockTrackInfo(
+                            song = current,
+                            sourceBadgeText = sourceBadgeText,
+                            layout = layout,
+                            color = TextPrimary,
+                            shadow = TrackShadow,
+                        )
+                    }
+                }
+            }
+
+            StandbyPresentation.READING_ROOM -> {
+                if (activeArt != null) {
+                    val pausedSeekKey = if (!isPlaying || !position.advancing || reducedMotion) {
+                        position.positionMs
+                    } else {
+                        0L
+                    }
+                    val progressState = produceState(
+                        initialValue = StandbyArtColors.computeSlitProgress(
+                            positionMs = position.positionMs,
+                            sampledAtNano = position.sampledAtNanos,
+                            nowNano = System.nanoTime(),
+                            durationMs = durationMs,
+                            isPlaying = isPlaying && position.advancing,
+                        ),
+                        song?.videoId,
+                        durationMs,
+                        isPlaying,
+                        position.advancing,
+                        reducedMotion,
+                        pausedSeekKey,
+                    ) {
+                        if (reducedMotion || !isPlaying || !position.advancing || durationMs <= 0L) {
                             value = StandbyArtColors.computeSlitProgress(
                                 positionMs = position.positionMs,
                                 sampledAtNano = position.sampledAtNanos,
                                 nowNano = System.nanoTime(),
                                 durationMs = durationMs,
-                                isPlaying = true,
+                                isPlaying = false,
                             )
+                        } else {
+                            while (true) {
+                                withFrameMillis {
+                                    value = StandbyArtColors.computeSlitProgress(
+                                        positionMs = position.positionMs,
+                                        sampledAtNano = position.sampledAtNanos,
+                                        nowNano = System.nanoTime(),
+                                        durationMs = durationMs,
+                                        isPlaying = true,
+                                    )
+                                }
+                            }
                         }
                     }
+                    SlitScanArtwork(
+                        art = activeArt,
+                        progressProvider = { progressState.value },
+                        reducedMotion = reducedMotion,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.72f)),
+                    )
+                }
+
+                DockReadingRoomLayout(
+                    song = song,
+                    sourceBadgeText = sourceBadgeText,
+                    activeArt = activeArt,
+                    now = now,
+                    battery = battery,
+                    layout = layout,
+                    isPortrait = isPortrait,
+                    lines = lyrics.orEmpty(),
+                    lyricsStatus = lyricsStatus,
+                    adjustedPositionMs = readingAdjustedPosMs,
+                    reducedMotion = reducedMotion,
+                    hudReserveBottom = hudVisible && !bedsideLocked && song != null,
+                    shiftX = shiftX,
+                    shiftY = shiftY,
+                    onTapLine = { lineTimeMs ->
+                        if (lockedState) {
+                            lockHintVisible = true
+                        } else if (lyricsStatus == StandbyLyricsStatus.SYNCED) {
+                            hudVisible = true
+                            hudInteractionTick++
+                            currentSeek(computeLyricsSeekTargetMs(lineTimeMs, currentOffsetMs))
+                        }
+                    },
+                )
+            }
+
+            StandbyPresentation.GALLERY,
+            StandbyPresentation.NIGHT_CLOCK -> {
+                if (activeArt != null) {
+                    val pausedSeekKey = if (!isPlaying || !position.advancing || reducedMotion) {
+                        position.positionMs
+                    } else {
+                        0L
+                    }
+                    val progressState = produceState(
+                        initialValue = StandbyArtColors.computeSlitProgress(
+                            positionMs = position.positionMs,
+                            sampledAtNano = position.sampledAtNanos,
+                            nowNano = System.nanoTime(),
+                            durationMs = durationMs,
+                            isPlaying = isPlaying && position.advancing,
+                        ),
+                        song?.videoId,
+                        durationMs,
+                        isPlaying,
+                        position.advancing,
+                        reducedMotion,
+                        pausedSeekKey,
+                    ) {
+                        if (reducedMotion || !isPlaying || !position.advancing || durationMs <= 0L) {
+                            value = StandbyArtColors.computeSlitProgress(
+                                positionMs = position.positionMs,
+                                sampledAtNano = position.sampledAtNanos,
+                                nowNano = System.nanoTime(),
+                                durationMs = durationMs,
+                                isPlaying = false,
+                            )
+                        } else {
+                            while (true) {
+                                withFrameMillis {
+                                    value = StandbyArtColors.computeSlitProgress(
+                                        positionMs = position.positionMs,
+                                        sampledAtNano = position.sampledAtNanos,
+                                        nowNano = System.nanoTime(),
+                                        durationMs = durationMs,
+                                        isPlaying = true,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    SlitScanArtwork(
+                        art = activeArt,
+                        progressProvider = { progressState.value },
+                        reducedMotion = reducedMotion,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // Center Clock + Date + Battery with minute-based AMOLED pixel shift.
+                val clockAlpha = if (effectiveNightClock) 0.55f else 1f
+                DockClockOverlay(
+                    now = now,
+                    battery = battery,
+                    layout = layout,
+                    color = onArtColor.copy(alpha = clockAlpha),
+                    shadow = if (activeArt != null) null else OverlayShadow,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset { IntOffset(shiftX, shiftY) },
+                )
+
+                // Bottom-left Track Metadata + Verified Source Badge.
+                song?.let { current ->
+                    DockTrackInfo(
+                        song = current,
+                        sourceBadgeText = sourceBadgeText,
+                        layout = layout,
+                        color = onArtColor.copy(alpha = clockAlpha),
+                        shadow = if (activeArt != null) null else TrackShadow,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .windowInsetsPadding(WindowInsets.displayCutout)
+                            .offset { IntOffset(shiftX / 2, shiftY / 2) }
+                            .padding(
+                                start = layout.trackStart,
+                                bottom = layout.trackBottom,
+                                end = if (hudVisible && !bedsideLocked) 172.dp else layout.trackStart,
+                            ),
+                    )
                 }
             }
-            SlitScanArtwork(
-                art = activeArt,
-                progressProvider = { progressState.value },
-                reducedMotion = reducedMotion,
-                modifier = Modifier.fillMaxSize(),
-            )
         }
 
-        // Center Clock + Date + Battery with minute-based AMOLED pixel shift.
-        val clockAlpha = if (effectiveNightClock) 0.55f else 1f
-        DockClockOverlay(
-            now = now,
-            battery = battery,
-            layout = layout,
-            color = onArtColor.copy(alpha = clockAlpha),
-            shadow = if (activeArt != null) null else OverlayShadow,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset { IntOffset(shiftX, shiftY) },
-        )
-
-        // Bottom-left Track Metadata + Verified Source Badge.
-        song?.let { current ->
-            DockTrackInfo(
-                song = current,
-                sourceBadgeText = sourceBadgeText,
-                layout = layout,
-                color = onArtColor.copy(alpha = clockAlpha),
-                shadow = if (activeArt != null) null else TrackShadow,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .windowInsetsPadding(WindowInsets.displayCutout)
-                    .offset { IntOffset(shiftX / 2, shiftY / 2) }
-                    .padding(
-                        start = layout.trackStart,
-                        bottom = layout.trackBottom,
-                        end = layout.trackStart,
-                    ),
-            )
-        }
-
-        // Top-right persistent Bedside Lock & Exit/Mode HUD controls.
-        Row(
+        // Top-right persistent Bedside Lock, Presentation Mode switcher & Exit HUD controls.
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.displayCutout)
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (lockHintVisible) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (lockHintVisible) {
+                    Surface(
+                        color = HudScrim,
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Text(
+                            text = "Locked — tap lock icon to unlock",
+                            color = TextPrimary,
+                            fontFamily = LabelFontFamily,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+
+                if (hudVisible && !bedsideLocked) {
+                    if (effectivePresentation == StandbyPresentation.LYRIC_THEATRE) {
+                        DockHudButton(
+                            label = "Reroll lyric style",
+                            active = false,
+                            onClick = {
+                                hudInteractionTick++
+                                lyricPageHolder.page?.reroll()
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+
+                    DockHudButton(
+                        label = if (effectiveNightClock) "Exit Night Clock" else "Night Clock",
+                        active = effectiveNightClock,
+                        onClick = {
+                            hudInteractionTick++
+                            preferredPresentationName = if (effectiveNightClock) {
+                                null
+                            } else {
+                                StandbyPresentation.NIGHT_CLOCK.name
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Bedtime,
+                            contentDescription = null,
+                            tint = if (effectiveNightClock) AccentGreen else TextPrimary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    DockHudButton(
+                        label = if (reducedMotion) "Disable Reduced Motion" else "Enable Reduced Motion",
+                        active = reducedMotion,
+                        onClick = {
+                            hudInteractionTick++
+                            reducedMotion = !reducedMotion
+                        },
+                    ) {
+                        Icon(
+                            imageVector = if (reducedMotion) {
+                                Icons.Rounded.MotionPhotosOff
+                            } else {
+                                Icons.Rounded.SlowMotionVideo
+                            },
+                            contentDescription = null,
+                            tint = if (reducedMotion) AccentGreen else TextPrimary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
+                DockHudButton(
+                    label = if (bedsideLocked) "Unlock bedside controls" else "Lock bedside controls",
+                    active = bedsideLocked,
+                    onClick = {
+                        val nextLocked = !bedsideLocked
+                        onBedsideLockedChange(nextLocked)
+                        if (!nextLocked) {
+                            hudVisible = true
+                            hudInteractionTick++
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (bedsideLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                        contentDescription = null,
+                        tint = if (bedsideLocked) AccentGreen else TextPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                if (!bedsideLocked) {
+                    DockHudButton(
+                        label = stringResource(R.string.close),
+                        active = false,
+                        onClick = onDismiss,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+
+            if (hudVisible && !bedsideLocked && song != null) {
                 Surface(
                     color = HudScrim,
                     shape = RoundedCornerShape(999.dp),
                 ) {
-                    Text(
-                        text = "Locked — tap lock icon to unlock",
-                        color = TextPrimary,
-                        fontFamily = LabelFontFamily,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
-            }
-
-            if (hudVisible && !bedsideLocked) {
-                DockHudButton(
-                    label = if (nightClockMode) "Exit Night Clock" else "Night Clock",
-                    active = nightClockMode,
-                    onClick = { nightClockMode = !nightClockMode },
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Bedtime,
-                        contentDescription = null,
-                        tint = if (nightClockMode) AccentGreen else TextPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                DockHudButton(
-                    label = if (reducedMotion) "Disable Reduced Motion" else "Enable Reduced Motion",
-                    active = reducedMotion,
-                    onClick = { reducedMotion = !reducedMotion },
-                ) {
-                    Icon(
-                        imageVector = if (reducedMotion) {
-                            Icons.Rounded.MotionPhotosOff
-                        } else {
-                            Icons.Rounded.SlowMotionVideo
-                        },
-                        contentDescription = null,
-                        tint = if (reducedMotion) AccentGreen else TextPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-
-            DockHudButton(
-                label = if (bedsideLocked) "Unlock bedside controls" else "Lock bedside controls",
-                active = bedsideLocked,
-                onClick = {
-                    val nextLocked = !bedsideLocked
-                    onBedsideLockedChange(nextLocked)
-                    if (!nextLocked) hudVisible = true
-                },
-            ) {
-                Icon(
-                    imageVector = if (bedsideLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                    contentDescription = null,
-                    tint = if (bedsideLocked) AccentGreen else TextPrimary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            if (!bedsideLocked) {
-                DockHudButton(
-                    label = stringResource(R.string.close),
-                    active = false,
-                    onClick = onDismiss,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = null,
-                        tint = TextPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DockModeChip(
+                            label = "Gallery",
+                            active = effectivePresentation == StandbyPresentation.GALLERY,
+                            onClick = {
+                                hudInteractionTick++
+                                preferredPresentationName = StandbyPresentation.GALLERY.name
+                            },
+                        )
+                        if (lyricsEnabled) {
+                            DockModeChip(
+                                label = "Lyrics",
+                                active = effectivePresentation == StandbyPresentation.READING_ROOM,
+                                onClick = {
+                                    hudInteractionTick++
+                                    preferredPresentationName = StandbyPresentation.READING_ROOM.name
+                                },
+                            )
+                        }
+                        if (canUseLyricTheatre) {
+                            DockModeChip(
+                                label = "Theatre",
+                                active = effectivePresentation == StandbyPresentation.LYRIC_THEATRE,
+                                onClick = {
+                                    hudInteractionTick++
+                                    preferredPresentationName = StandbyPresentation.LYRIC_THEATRE.name
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -603,6 +985,7 @@ fun StandbyDockScreen(
                     IconButton(
                         onClick = {
                             hudVisible = true
+                            hudInteractionTick++
                             onPrevious()
                         },
                         modifier = Modifier.semantics { contentDescription = "Previous track" },
@@ -616,6 +999,7 @@ fun StandbyDockScreen(
                     IconButton(
                         onClick = {
                             hudVisible = true
+                            hudInteractionTick++
                             onPlayPause()
                         },
                         modifier = Modifier.semantics {
@@ -631,6 +1015,7 @@ fun StandbyDockScreen(
                     IconButton(
                         onClick = {
                             hudVisible = true
+                            hudInteractionTick++
                             onNext()
                         },
                         modifier = Modifier.semantics { contentDescription = "Next track" },
@@ -640,6 +1025,390 @@ fun StandbyDockScreen(
                             contentDescription = null,
                             tint = TextPrimary,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockModeChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (active) Color(0xCC1B2B22) else Color.Transparent,
+        shape = RoundedCornerShape(999.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Text(
+            text = label,
+            color = if (active) AccentGreen else TextPrimary.copy(alpha = 0.85f),
+            fontFamily = LabelFontFamily,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun DockCoverThumb(
+    art: Bitmap,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val imageBitmap = remember(art) { art.asImageBitmap() }
+    Image(
+        bitmap = imageBitmap,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(10.dp)),
+    )
+}
+
+@Composable
+private fun DockCornerClock(
+    now: LocalDateTime,
+    battery: DockBatteryStatus,
+    isPortrait: Boolean,
+    color: Color,
+    shadow: Shadow?,
+    modifier: Modifier = Modifier,
+) {
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+    val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.ENGLISH) }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Text(
+            text = now.format(timeFormatter),
+            style = TextStyle(
+                color = color,
+                fontFamily = TimeFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (isPortrait) 28.sp else 36.sp,
+                shadow = shadow,
+            ),
+            maxLines = 1,
+            softWrap = false,
+        )
+        Text(
+            text = if (battery.isCharging) {
+                "${now.format(dateFormatter).uppercase(Locale.ENGLISH)} · ⚡ ${battery.level}%"
+            } else {
+                "${now.format(dateFormatter).uppercase(Locale.ENGLISH)} · ${battery.level}%"
+            },
+            style = TextStyle(
+                color = color.copy(alpha = 0.78f),
+                fontFamily = LabelFontFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = 11.sp,
+                letterSpacing = 1.sp,
+                shadow = shadow,
+            ),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+@Composable
+private fun DockReadingRoomLayout(
+    song: Song?,
+    sourceBadgeText: String,
+    activeArt: Bitmap?,
+    now: LocalDateTime,
+    battery: DockBatteryStatus,
+    layout: DockLayout,
+    isPortrait: Boolean,
+    lines: List<LyricLine>,
+    lyricsStatus: StandbyLyricsStatus,
+    adjustedPositionMs: Long,
+    reducedMotion: Boolean,
+    hudReserveBottom: Boolean,
+    shiftX: Int,
+    shiftY: Int,
+    onTapLine: (Long) -> Unit,
+) {
+    if (isPortrait) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.displayCutout)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            DockCornerClock(
+                now = now,
+                battery = battery,
+                isPortrait = true,
+                color = TextPrimary,
+                shadow = OverlayShadow,
+                modifier = Modifier.offset { IntOffset(shiftX / 2, shiftY / 2) },
+            )
+            song?.let { current ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset { IntOffset(shiftX / 2, shiftY / 2) },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    activeArt?.let { bmp ->
+                        DockCoverThumb(art = bmp, size = 54.dp)
+                    }
+                    DockTrackInfo(
+                        song = current,
+                        sourceBadgeText = sourceBadgeText,
+                        layout = layout,
+                        color = TextPrimary,
+                        shadow = TrackShadow,
+                    )
+                }
+            }
+            DockReadingRoomLyrics(
+                lines = lines,
+                lyricsStatus = lyricsStatus,
+                adjustedPositionMs = adjustedPositionMs,
+                reducedMotion = reducedMotion,
+                isPortrait = true,
+                onTapLine = onTapLine,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(bottom = if (hudReserveBottom) 76.dp else 12.dp),
+            )
+        }
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.displayCutout)
+                .padding(horizontal = 32.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(0.36f)
+                    .fillMaxHeight()
+                    .offset { IntOffset(shiftX / 2, shiftY / 2) },
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                DockCornerClock(
+                    now = now,
+                    battery = battery,
+                    isPortrait = false,
+                    color = TextPrimary,
+                    shadow = OverlayShadow,
+                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    activeArt?.let { bmp ->
+                        DockCoverThumb(art = bmp, size = 108.dp)
+                    }
+                    song?.let { current ->
+                        DockTrackInfo(
+                            song = current,
+                            sourceBadgeText = sourceBadgeText,
+                            layout = DockLayout(
+                                timeSize = layout.timeSize,
+                                dateSize = layout.dateSize,
+                                dateSpacing = layout.dateSpacing,
+                                batterySize = layout.batterySize,
+                                trackStart = 0.dp,
+                                trackBottom = 0.dp,
+                                trackWidthFraction = 1f,
+                                trackTitleSize = 20.sp,
+                                trackArtistSize = 14.sp,
+                            ),
+                            color = TextPrimary,
+                            shadow = TrackShadow,
+                        )
+                    }
+                }
+            }
+            DockReadingRoomLyrics(
+                lines = lines,
+                lyricsStatus = lyricsStatus,
+                adjustedPositionMs = adjustedPositionMs,
+                reducedMotion = reducedMotion,
+                isPortrait = false,
+                onTapLine = onTapLine,
+                modifier = Modifier
+                    .weight(0.64f)
+                    .fillMaxHeight()
+                    .padding(
+                        top = 72.dp,
+                        bottom = if (hudReserveBottom) 68.dp else 12.dp,
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DockReadingRoomLyrics(
+    lines: List<LyricLine>,
+    lyricsStatus: StandbyLyricsStatus,
+    adjustedPositionMs: Long,
+    reducedMotion: Boolean,
+    isPortrait: Boolean,
+    onTapLine: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val activeIndex = remember(lines, lyricsStatus, adjustedPositionMs) {
+        if (lyricsStatus == StandbyLyricsStatus.SYNCED) {
+            resolveActiveLyricIndex(lines, adjustedPositionMs)
+        } else {
+            -1
+        }
+    }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(activeIndex, lyricsStatus, reducedMotion) {
+        if (lyricsStatus == StandbyLyricsStatus.SYNCED && activeIndex >= 0 && activeIndex < lines.size) {
+            val target = (activeIndex - 1).coerceAtLeast(0)
+            if (reducedMotion) {
+                listState.scrollToItem(target)
+            } else {
+                listState.animateScrollToItem(target)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        when (lyricsStatus) {
+            StandbyLyricsStatus.LOADING -> {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(
+                        color = AccentGreen,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Searching synchronized lyrics…",
+                        color = TextPrimary.copy(alpha = 0.78f),
+                        fontFamily = LabelFontFamily,
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+
+            StandbyLyricsStatus.DISABLED -> {
+                Text(
+                    text = "Lyrics are disabled in Settings",
+                    color = TextPrimary.copy(alpha = 0.65f),
+                    fontFamily = LabelFontFamily,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            StandbyLyricsStatus.INSTRUMENTAL -> {
+                Text(
+                    text = "Instrumental",
+                    color = TextPrimary.copy(alpha = 0.75f),
+                    fontFamily = LabelFontFamily,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            StandbyLyricsStatus.UNAVAILABLE -> {
+                Text(
+                    text = "No lyrics found for this track",
+                    color = TextPrimary.copy(alpha = 0.65f),
+                    fontFamily = LabelFontFamily,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            StandbyLyricsStatus.PLAIN,
+            StandbyLyricsStatus.SYNCED -> {
+                val synced = lyricsStatus == StandbyLyricsStatus.SYNCED
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isPortrait) 16.dp else 18.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(
+                        items = lines,
+                        key = { index, item -> "$index:${item.timeMs}:${item.text.hashCode()}" },
+                    ) { index, line ->
+                        val isActive = synced && index == activeIndex
+                        val displayText = if (line.isGap) "• • •" else line.text
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .then(
+                                    if (synced && !line.isGap) {
+                                        Modifier.clickable { onTapLine(line.timeMs) }
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = displayText,
+                                style = TextStyle(
+                                    color = when {
+                                        line.isGap -> TextPrimary.copy(alpha = if (isActive) 0.7f else 0.3f)
+                                        !synced -> TextPrimary.copy(alpha = 0.88f)
+                                        isActive -> TextPrimary
+                                        else -> TextPrimary.copy(alpha = 0.42f)
+                                    },
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = when {
+                                        !synced -> if (isPortrait) 18.sp else 20.sp
+                                        isActive -> if (isPortrait) 24.sp else 27.sp
+                                        else -> if (isPortrait) 18.sp else 20.sp
+                                    },
+                                    lineHeight = when {
+                                        isActive -> if (isPortrait) 31.sp else 34.sp
+                                        else -> if (isPortrait) 25.sp else 28.sp
+                                    },
+                                    shadow = if (isActive) TrackShadow else null,
+                                ),
+                                overflow = TextOverflow.Clip,
+                            )
+                            val backing = line.background?.text?.takeIf { it.isNotBlank() }
+                            if (backing != null) {
+                                Text(
+                                    text = backing,
+                                    style = TextStyle(
+                                        color = if (isActive) {
+                                            AccentGreen.copy(alpha = 0.9f)
+                                        } else {
+                                            TextPrimary.copy(alpha = 0.34f)
+                                        },
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = if (isPortrait) 14.sp else 16.sp,
+                                    ),
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

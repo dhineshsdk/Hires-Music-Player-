@@ -1219,6 +1219,7 @@ private fun BitChordApp(
                 player.durationMs.takeIf { ms -> ms > 0L } ?: it.durationMillis(),
                 it.albumName,
                 it.localUri,
+                it.localPath,
             )
         }
     }
@@ -4827,12 +4828,27 @@ private fun BitChordApp(
 
         if (showStandbyDock && playerSong != null) {
             val dockArtworkUrl = rememberRemoteArtworkUrl(playerSong)
+            val dockLyricsOffsetMs by AppSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
             StandbyDockDialog(
                 song = playerSong,
                 artworkUrl = dockArtworkUrl,
                 isPlaying = player.isPlaying,
                 position = player.position,
                 durationMs = player.durationMs,
+                lyrics = lyrics,
+                lyricsChecked = lyricsChecked,
+                lyricsEnabled = syncedLyricsEnabled && lyricsSources.isNotEmpty(),
+                lyricsOffsetMs = dockLyricsOffsetMs,
+                onSeek = { target ->
+                    val duration = player.durationMs
+                    controller?.seekTo(
+                        if (duration > 0L) {
+                            target.coerceIn(0L, (duration - SEEK_END_GUARD_MS).coerceAtLeast(0L))
+                        } else {
+                            target.coerceAtLeast(0L)
+                        },
+                    )
+                },
                 onPlayPause = { togglePlayPause() },
                 onNext = { controller?.seekToNextMediaItem() },
                 onPrevious = { controller?.seekToPrevious() },

@@ -40,6 +40,7 @@ import com.music.bitchord.data.lyrics.EmbeddedLyrics
 import com.music.bitchord.data.lyrics.LyricLine
 import com.music.bitchord.data.lyrics.LyricsRepository
 import com.music.bitchord.data.lyrics.LyricsSource
+import com.music.bitchord.data.lyrics.StandbyLyricsCache
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.ui.navigation.AppNavigator
 import com.music.bitchord.data.innertube.Innertube
@@ -392,6 +393,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         durationMs: Long,
         album: String? = null,
         localUri: String? = null,
+        localPath: String? = null,
     ) {
         val sources = if (AppSettings.syncedLyrics.value) {
             AppSettings.lyricsSources.value
@@ -409,7 +411,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // dropped as a duplicate, and leave the track marked as being looked up
         // by nobody — which is what left a paused track loading for ever, since
         // pausing is when the duration is most likely to arrive a frame late.
-        if (localUri == null && durationMs <= 0L) return
+        if (localUri == null && localPath == null && durationMs <= 0L) return
         lyricsFor = key
         lyricsGeneration += 1
         val generation = lyricsGeneration
@@ -436,8 +438,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // only needed to *match* a track against a stranger's database, and
             // nothing is being matched here — these lyrics were written into
             // this exact file, for this exact recording.
-            if (localUri != null) {
-                EmbeddedLyrics.forUri(getApplication(), localUri)?.let { embedded ->
+            if (localUri != null || localPath != null) {
+                EmbeddedLyrics.forUri(getApplication(), localUri.orEmpty(), localPath)?.let { embedded ->
                     _lyrics.value = embedded
                     // No source to name: what the file records is the lyrics,
                     // not which of the eight services they came from months ago.
@@ -461,8 +463,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSourceCancelled = { source -> providerCancelled(generation, source) },
             )
             val selected = selectedLyricsSource?.let(lyricsProviderResults::get) ?: found
-            _lyrics.value = selected?.lines
-            _lyricsSource.value = selected?.source
+            if (selected != null) {
+                withContext(Dispatchers.IO) {
+                    StandbyLyricsCache.writeCached(getApplication(), videoId, selected.lines)
+                }
+                _lyrics.value = selected.lines
+                _lyricsSource.value = selected.source
+            } else {
+                val cached = withContext(Dispatchers.IO) {
+                    StandbyLyricsCache.readCached(getApplication(), videoId)
+                }
+                _lyrics.value = cached
+                _lyricsSource.value = null
+            }
             _lyricsChecked.value = true
         }
     }
@@ -556,6 +569,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _lyrics.value = result.lines
         _lyricsSource.value = result.source
         _lyricsChecked.value = true
+        currentLyricsRequest?.videoId?.let { id ->
+            viewModelScope.launch(Dispatchers.IO) {
+                StandbyLyricsCache.writeCached(getApplication(), id, result.lines)
+            }
+        }
     }
 
     private val _account = MutableStateFlow<Account?>(null)
