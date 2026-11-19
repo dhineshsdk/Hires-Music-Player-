@@ -290,6 +290,14 @@ fun StandbyDockDialog(
         val view = LocalView.current
         val dialogWindow: Window? = (view.parent as? DialogWindowProvider)?.window
 
+        LaunchedEffect(dialogWindow) {
+            @Suppress("DEPRECATION")
+            dialogWindow?.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            )
+        }
+
         StandbyDockScreen(
             song = song,
             artworkUrl = artworkUrl,
@@ -345,6 +353,16 @@ fun StandbyDockScreen(
     var lockHintVisible by remember { mutableStateOf(false) }
     var pausedTimedOut by remember { mutableStateOf(false) }
     var webViewHealthy by remember { mutableStateOf(true) }
+
+    DisposableEffect(Unit) {
+        StandbyLockscreenController.markVisible(true)
+        onDispose { StandbyLockscreenController.markVisible(false) }
+    }
+    LaunchedEffect(position.positionMs, isPlaying) {
+        if (StandbyLockscreenController.isCurrentlyVisible) {
+            StandbyLockscreenController.lastVisibleAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        }
+    }
 
     val lyricPageHolder = rememberStandbyLyricPageHolder()
     val providerKind = remember(song?.videoId) {

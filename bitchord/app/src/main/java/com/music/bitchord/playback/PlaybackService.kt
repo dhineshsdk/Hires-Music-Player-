@@ -3,8 +3,11 @@
 package com.music.bitchord.playback
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
@@ -547,6 +550,22 @@ class PlaybackService : MediaLibraryService() {
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val bluetoothTracker by lazy { BluetoothAudioTracker(this) }
     private var currentAudioInputFormat: Format? = null
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    com.music.bitchord.ui.standby.StandbyLockscreenController.onScreenOff(
+                        context = this@PlaybackService,
+                        isPlaying = player?.isPlaying == true,
+                        isStillPlaying = { player?.isPlaying == true },
+                    )
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    com.music.bitchord.ui.standby.StandbyLockscreenController.cancelPendingLaunch()
+                }
+            }
+        }
+    }
     private val outputDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
             // Plugging something in moves the music to it. Always — a choice
@@ -1353,6 +1372,16 @@ class PlaybackService : MediaLibraryService() {
                 .setChannelName(R.string.playback_channel_name)
                 .build()
                 .apply { setSmallIcon(R.drawable.ic_notification_logo) },
+        )
+
+        ContextCompat.registerReceiver(
+            this,
+            screenOffReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
         // Both the player screen and notification route their Shuffle command
@@ -7879,6 +7908,8 @@ class PlaybackService : MediaLibraryService() {
         providerPlaybackCoordinator.release()
         closeAudioEffectSession()
         bluetoothTracker.stop()
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        com.music.bitchord.ui.standby.StandbyLockscreenController.cancelPendingLaunch()
         audioManager?.unregisterAudioDeviceCallback(outputDeviceCallback)
         partySync?.stop()
         partySync = null

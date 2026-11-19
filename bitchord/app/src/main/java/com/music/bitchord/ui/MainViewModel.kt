@@ -169,7 +169,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * nothing to build it from. Declared ahead of [init] for the same reason
      * as [homeContinuation] — [loadHome] reaches it synchronously.
      */
-    private val _topPicks = MutableStateFlow<List<TopPick>?>(null)
+    private val _topPicks = MutableStateFlow<List<TopPick>?>(TopPicks.defaultPicks())
     val topPicks: StateFlow<List<TopPick>?> = _topPicks.asStateFlow()
     private val _topPicksLoading = MutableStateFlow(false)
     val topPicksLoading: StateFlow<Boolean> = _topPicksLoading.asStateFlow()
@@ -1799,8 +1799,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (stored != null) {
                 _topPicks.value = stored.picks
                 topPicksSlotShown = stored.day
-            } else if (!rebuild) {
-                _topPicks.value = null
+            } else if (!rebuild && _topPicks.value == null) {
+                _topPicks.value = TopPicks.defaultPicks()
             }
             if (!rebuild && stored?.day == slot) {
                 _topPicksLoading.value = false
@@ -1811,7 +1811,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (identity != listenerKey()) return@launch
             _topPicksLoading.value = false
             if (picks == null) {
-                if (_topPicks.value == null) _topPicks.value = emptyList()
+                if (_topPicks.value.isNullOrEmpty()) _topPicks.value = TopPicks.defaultPicks()
                 return@launch
             }
             _topPicks.value = picks

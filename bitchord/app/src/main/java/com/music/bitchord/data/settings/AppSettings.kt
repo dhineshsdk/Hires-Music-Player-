@@ -225,6 +225,9 @@ object AppSettings {
     /** User-selected priority across Dolby Atmos, Hi-Res Lossless FLAC, and standard Lossless. */
     val audioFormatPriority = MutableStateFlow(AudioFormatPriority.DOLBY_ATMOS_FIRST)
 
+    /** Automatically open StaaaaandBy Lock-Screen Lyric Showcase when the screen turns off during playback. */
+    val lockscreenLyricsEnabled = MutableStateFlow(true)
+
     /** Allowed duration difference when replacing a playing stream with one from a source. */
     val upgradeLengthSlackSeconds = MutableStateFlow(DEFAULT_UPGRADE_LENGTH_SLACK_SECONDS)
 
@@ -1000,6 +1003,7 @@ object AppSettings {
                     ?: AudioFormatPriority.DOLBY_ATMOS_FIRST.name,
             )
         }.getOrDefault(AudioFormatPriority.DOLBY_ATMOS_FIRST)
+        lockscreenLyricsEnabled.value = prefs.getBoolean(KEY_LOCKSCREEN_LYRICS_ENABLED, true)
         upgradeLengthSlackSeconds.value = prefs.getInt(
             KEY_UPGRADE_LENGTH_SLACK_SECONDS,
             DEFAULT_UPGRADE_LENGTH_SLACK_SECONDS,
@@ -1314,6 +1318,11 @@ object AppSettings {
     fun setAudioFormatPriority(value: AudioFormatPriority) {
         audioFormatPriority.value = value
         prefs.edit().putString(KEY_AUDIO_FORMAT_PRIORITY, value.name).apply()
+    }
+
+    fun setLockscreenLyricsEnabled(value: Boolean) {
+        lockscreenLyricsEnabled.value = value
+        prefs.edit().putBoolean(KEY_LOCKSCREEN_LYRICS_ENABLED, value).apply()
     }
 
     fun setUpgradeLengthSlackSeconds(value: Int) {
@@ -2435,6 +2444,7 @@ object AppSettings {
     private const val KEY_DISCORD_INFO_DISMISSED = "discord_info_dismissed"
     private const val KEY_ALLOW_LOSSLESS_ALL_OUTPUTS = "allow_lossless_all_outputs"
     private const val KEY_AUDIO_FORMAT_PRIORITY = "audio_format_priority"
+    private const val KEY_LOCKSCREEN_LYRICS_ENABLED = "lockscreen_lyrics_enabled"
     private const val KEY_LAST_VERSION_CODE = "last_version_code"
 }
 

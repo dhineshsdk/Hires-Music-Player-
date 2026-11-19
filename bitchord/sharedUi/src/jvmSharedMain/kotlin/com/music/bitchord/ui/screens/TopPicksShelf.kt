@@ -133,12 +133,12 @@ import kotlin.math.sin
 private const val TOP_PICK_RATIO = 0.75f
 
 /** Share of the row a card takes, so the next one shows past it. */
-private const val TOP_PICK_FRACTION = 0.60f
+private const val TOP_PICK_FRACTION = 0.68f
 
 /** Held back on a tablet, so a card doesn't blow up into a poster. */
 private val TOP_PICK_MAX_WIDTH = 280.dp
 
-private val TopPickShape = RoundedCornerShape(12.dp)
+private val TopPickShape = RoundedCornerShape(18.dp)
 
 private fun topPickWidth(available: Dp): Dp = minOf(available * TOP_PICK_FRACTION, TOP_PICK_MAX_WIDTH)
 
@@ -231,9 +231,14 @@ private fun cardText(pick: TopPick, listenerName: String?): CardText {
         )
         TopPickKind.PERSONAL_STATION -> CardText(
             eyebrow = stringResource(Res.string.top_pick_made_for_you),
-            title = listenerName?.substringBefore(' ')?.takeIf { it.isNotBlank() }
+            title = listenerName?.trim()?.takeIf { it.isNotBlank() }
                 ?.let { stringResource(Res.string.top_pick_named_station, it) }
                 ?: stringResource(Res.string.top_pick_your_station),
+            subtitle = "",
+        )
+        TopPickKind.FAVOURITE_SONGS -> CardText(
+            eyebrow = "Made By You",
+            title = "Favourite Songs",
             subtitle = "",
         )
         TopPickKind.MOOD -> {
@@ -291,15 +296,22 @@ private fun TopPickCard(
         when (pick.kind) {
             TopPickKind.PERSONAL_STATION -> {
                 PersonalStationArt(Modifier.fillMaxSize())
+                AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 16.dp))
                 eyebrowColor = Color(0xFFFFD2DA)
+            }
+            TopPickKind.FAVOURITE_SONGS -> {
+                FavouriteSongsArt(Modifier.fillMaxSize())
+                eyebrowColor = Color.White.copy(alpha = 0.82f)
             }
             TopPickKind.DISCOVERY_STATION -> {
                 DiscoveryStationArt(Modifier.fillMaxSize())
+                AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 16.dp))
                 eyebrowColor = Color(0xFFCDBDFF)
             }
             TopPickKind.MOOD -> {
                 val style = (pick.mood ?: TopPickMood.FEEL_GOOD).style()
                 MoodArt(pick.mood ?: TopPickMood.FEEL_GOOD, style, Modifier.fillMaxSize())
+                AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 16.dp))
                 eyebrowColor = style.eyebrow
             }
             TopPickKind.ARTIST_AND_SIMILAR -> {
@@ -762,12 +774,62 @@ private val DiscoveryEdges = listOf(0f, 0.24f, 0.44f, 0.62f, 0.78f, 0.91f, 1.02f
 
 private class DiscoveryBrushes(val background: Brush, val top: List<Brush>, val bottom: List<Brush>, val arrow: Brush)
 
+@Composable
+internal fun AurexCardBadge(modifier: Modifier = Modifier) {
+    Text(
+        text = "Aurex",
+        color = Color.White.copy(alpha = 0.92f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.2).sp,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun FavouriteSongsArt(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.background(
+            Brush.verticalGradient(listOf(Color(0xFF98989D), Color(0xFF76767B))),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(y = (-24).dp)
+                .fillMaxWidth(0.76f)
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFFF5F5F7)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val starPath = remember { Path() }
+            Canvas(Modifier.fillMaxSize(0.56f)) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val outerR = size.minDimension * 0.48f
+                val innerR = outerR * 0.43f
+                starPath.reset()
+                for (i in 0 until 10) {
+                    val r = if (i % 2 == 0) outerR else innerR
+                    val angle = -PI.toFloat() / 2f + i * (PI.toFloat() / 5f)
+                    val px = cx + r * cos(angle)
+                    val py = cy + r * sin(angle)
+                    if (i == 0) starPath.moveTo(px, py) else starPath.lineTo(px, py)
+                }
+                starPath.close()
+                drawPath(starPath, Color(0xFFFA2D48))
+            }
+        }
+    }
+}
+
 /**
  * The discovery station: a violet arrow across the card with a fan of blue,
  * indigo and teal shards opening around its tip, which sweep slowly to and fro.
  */
 @Composable
-private fun DiscoveryStationArt(modifier: Modifier) {
+internal fun DiscoveryStationArt(modifier: Modifier = Modifier) {
     val phase by loopPhase(STATION_PERIOD_MS)
     val path = remember { Path() }
     val brushes = remember {
@@ -846,14 +908,14 @@ private val DiscoveryInnerArrow = Color(0xFF3C1981).copy(alpha = 0.35f)
  * photographs, which this app can't use, so they get emblems in the same
  * hand instead.
  */
-private class MoodStyle(
+internal class MoodStyle(
     val background: Color,
     val stroke: Color,
     val periodMs: Int,
     val eyebrow: Color = lerp(stroke, Color.White, 0.35f),
 )
 
-private fun TopPickMood.style(): MoodStyle = when (this) {
+internal fun TopPickMood.style(): MoodStyle = when (this) {
     TopPickMood.ENERGY -> MoodStyle(Color(0xFF1EBD38), Color(0xFFE2F6A2), 3_000, Color(0xFFE8FF9C))
     TopPickMood.RELAX -> MoodStyle(Color(0xFF31AFF3), Color(0xFFB4E9FF), 5_600, Color(0xFFD6F3FF))
     TopPickMood.FEELING_BLUE -> MoodStyle(Color(0xFF253AB2), Color(0xFF6CC4FF), 3_700, Color(0xFFA9DBFF))
@@ -960,7 +1022,7 @@ private class Frame(val left: Float, val top: Float, val side: Float) {
  * above the caption.
  */
 @Composable
-private fun MoodArt(
+internal fun MoodArt(
     mood: TopPickMood,
     style: MoodStyle,
     modifier: Modifier,

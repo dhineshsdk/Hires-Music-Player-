@@ -3,13 +3,16 @@
 package com.music.bitchord
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Toast
@@ -74,6 +77,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Upgrade
@@ -93,6 +97,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +105,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -170,6 +176,7 @@ import com.music.bitchord.ui.components.handleDacVolumeKey
 import com.music.bitchord.ui.components.VolumeHud
 import com.music.bitchord.ui.components.rememberRemoteArtworkUrl
 import com.music.bitchord.ui.standby.StandbyDockDialog
+import com.music.bitchord.ui.standby.StandbyLockscreenController
 import com.music.bitchord.ui.navigation.AppDestination
 import com.music.bitchord.ui.navigation.AppRoute
 import com.music.bitchord.ui.screens.EqualizerPresetPage
@@ -399,6 +406,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        applyLockscreenIntent(intent)
         // Before the composition, so a cold launch from a widget's artwork has
         // the request already standing by the time BitChordApp first reads it.
         PlayerDeepLink.consume(intent)
@@ -509,9 +517,40 @@ class MainActivity : AppCompatActivity() {
         // Replaces what getIntent() returns, so the extra this consumes is the
         // one that just arrived and not the one the task was started with.
         setIntent(intent)
+        applyLockscreenIntent(intent)
         PlayerDeepLink.consume(intent)
         JamInviteLink.consume(intent)
         MusicLink.consume(intent)
+    }
+
+    private fun applyLockscreenIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(StandbyLockscreenController.EXTRA_LOCKSCREEN_STANDBY, false) == true) {
+            setActivityShowWhenLocked(this, show = true, turnScreenOn = true)
+            StandbyLockscreenController.notifyIntentReceived()
+        }
+    }
+}
+
+private fun setActivityShowWhenLocked(
+    activity: android.app.Activity,
+    show: Boolean,
+    turnScreenOn: Boolean = false,
+) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+        activity.setShowWhenLocked(show)
+        if (turnScreenOn) {
+            activity.setTurnScreenOn(true)
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        val flags = android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            if (turnScreenOn) android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON else 0
+        if (show) {
+            activity.window?.addFlags(flags)
+        } else {
+            @Suppress("DEPRECATION")
+            activity.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+        }
     }
 }
 
@@ -685,6 +724,9 @@ private fun BitChordApp(
     var songActions by remember { mutableStateOf<Song?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
     var showStandbyDock by rememberSaveable { mutableStateOf(false) }
+    var openedByLockscreen by rememberSaveable { mutableStateOf(false) }
+    var homeMoreMenuOpen by remember { mutableStateOf(false) }
+    val lockscreenLyricsEnabled by AppSettings.lockscreenLyricsEnabled.collectAsStateWithLifecycle()
     /**
      * Whether the track menu that is up was opened from the player.
      *
@@ -1224,6 +1266,66 @@ private fun BitChordApp(
         }
     }
 
+    val currentPlayerSong by rememberUpdatedState(player.song)
+    val currentPlayerPlaying by rememberUpdatedState(player.isPlaying)
+    val currentLockscreenEnabled by rememberUpdatedState(lockscreenLyricsEnabled)
+    val lockscreenTrigger by StandbyLockscreenController.triggers.collectAsStateWithLifecycle()
+
+    LaunchedEffect(lockscreenTrigger, player.song?.videoId) {
+        if (lockscreenTrigger > 0L && player.song != null) {
+            openedByLockscreen = true
+            showStandbyDock = true
+        }
+    }
+
+    DisposableEffect(context, lockscreenLyricsEnabled, player.song?.videoId) {
+        (context as? android.app.Activity)?.let { act ->
+            setActivityShowWhenLocked(act, show = lockscreenLyricsEnabled && player.song != null)
+        }
+        onDispose {}
+    }
+
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        val songNow = currentPlayerSong
+                        val playingNow = currentPlayerPlaying
+                        val enabledNow = currentLockscreenEnabled
+                        val sinceVisible = android.os.SystemClock.elapsedRealtime() -
+                            StandbyLockscreenController.lastVisibleAtElapsedMs
+                        if (enabledNow &&
+                            playingNow &&
+                            songNow != null &&
+                            !StandbyLockscreenController.isCurrentlyVisible &&
+                            sinceVisible >= 3_000L
+                        ) {
+                            openedByLockscreen = true
+                            showStandbyDock = true
+                        }
+                    }
+                    Intent.ACTION_USER_PRESENT -> {
+                        if (openedByLockscreen) {
+                            openedByLockscreen = false
+                            showStandbyDock = false
+                        }
+                    }
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
     val homeListState = rememberLazyListState()
     val exploreListState = rememberLazyListState()
     val moodGenreListState = rememberLazyListState()
@@ -1759,14 +1861,49 @@ private fun BitChordApp(
         } else if (controller != null && !refusedByHost()) {
             val request = ++playRequestGeneration
             scope.launch {
-                val songs = TopPicks.queue(pick).getOrNull().orEmpty()
+                val remoteSongs = if (pick.kind == TopPickKind.FAVOURITE_SONGS) {
+                    emptyList()
+                } else {
+                    TopPicks.queue(pick).getOrNull().orEmpty()
+                }
+                val songs = if (remoteSongs.isNotEmpty()) {
+                    remoteSongs
+                } else {
+                    val offlineFavs = offlinePlaylists.firstOrNull { it.isLiked }?.songs.orEmpty()
+                    val remoteFavs = (libraryState as? UiState.Success)?.data?.likedSongs.orEmpty()
+                    val localPool = if (LocalMediaRepository.hasStoragePermission(context)) {
+                        runCatching { LocalMediaRepository.getLocalMusic(context) }.getOrDefault(emptyList())
+                    } else {
+                        emptyList()
+                    }
+                    val homePool = (homeState as? UiState.Success)?.data.orEmpty()
+                        .flatMap { it.items }
+                        .mapNotNull { item ->
+                            item.videoId?.let { id ->
+                                Song(
+                                    videoId = id,
+                                    title = item.title,
+                                    artist = InnertubeParser.artistFromSubtitle(item.subtitle),
+                                    thumbnailUrl = item.thumbnailUrl,
+                                    isVideo = item.isVideo,
+                                )
+                            }
+                        }
+                    when (pick.kind) {
+                        TopPickKind.FAVOURITE_SONGS ->
+                            (offlineFavs + remoteFavs).distinctBy { it.videoId }
+                                .ifEmpty { (localPool + homePool).distinctBy { it.videoId } }
+                        else ->
+                            (localPool + offlineFavs + homePool).distinctBy { it.videoId }.shuffled()
+                    }
+                }
                 if (request != playRequestGeneration) return@launch
                 val activeController = controller ?: return@launch
                 if (songs.isEmpty()) {
                     Toast.makeText(context, R.string.couldnt_load_tracks, Toast.LENGTH_SHORT).show()
                     return@launch
                 }
-                val sourceId = pick.watch?.playlistId ?: pick.mood?.name
+                val sourceId = pick.watch?.playlistId ?: pick.mood?.name ?: pick.kind.name
                 val station = songs.map {
                     it.copy(
                         radioName = label,
@@ -3387,7 +3524,7 @@ private fun BitChordApp(
                                 listState = homeListState,
                                 currentSong = player.song,
                                 isPlaying = player.isPlaying,
-                                title = stringResource(R.string.listen_now),
+                                title = stringResource(R.string.home),
                                 festiveLogo = diwaliFestive,
                                 onFestiveLogoClick = { showDiwali = true },
                                 signedIn = signedIn,
@@ -3422,7 +3559,9 @@ private fun BitChordApp(
                                 recentlyPlayedLoading = homeRecentlyPlayedLoading && !hideRecents,
                                 topPicks = topPicks,
                                 topPicksLoading = topPicksLoading,
-                                listenerName = account?.name,
+                                listenerName = account?.name?.takeIf { it.isNotBlank() }
+                                    ?: ListenTogether.nickname().takeIf { it.isNotBlank() }
+                                    ?: "Dhinesh SDK",
                                 // Neither shelf is drawn without its callback.
                                 onTopPickClick = openTopPick.takeUnless { hideTopPicks },
                                 onMoodClick = playMood.takeUnless { hideHomeMoods },
@@ -3813,7 +3952,7 @@ private fun BitChordApp(
                             detail != null -> detail.title
                             selectedMoodGenre != null -> selectedMoodGenre?.title.orEmpty()
                             else -> tabs[selectedTab].let {
-                                if (it.label == "Play") stringResource(R.string.listen_now) else it.label
+                                if (it.label == "Play") stringResource(R.string.home) else it.label
                             }
                         }
                     },
@@ -4131,6 +4270,82 @@ private fun BitChordApp(
                                 },
                                 onSwipeProfile = { forward -> viewModel.stepProfile(forward) },
                             )
+                            if (route == null && detail == null && selectedTab == TAB_HOME) {
+                                Box {
+                                    IconButton(onClick = { homeMoreMenuOpen = true }) {
+                                        Icon(
+                                            Icons.Rounded.MoreVert,
+                                            contentDescription = "Home options",
+                                            tint = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = homeMoreMenuOpen,
+                                        onDismissRequest = { homeMoreMenuOpen = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (lockscreenLyricsEnabled) {
+                                                        "Lock-Screen Lyric Visualization: ON"
+                                                    } else {
+                                                        "Lock-Screen Lyric Visualization: OFF"
+                                                    },
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (lockscreenLyricsEnabled) {
+                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                                }
+                                            },
+                                            onClick = {
+                                                AppSettings.setLockscreenLyricsEnabled(!lockscreenLyricsEnabled)
+                                                homeMoreMenuOpen = false
+                                            },
+                                        )
+                                        if (player.song != null) {
+                                            DropdownMenuItem(
+                                                text = { Text("Launch Lock-Screen Lyric Showcase") },
+                                                onClick = {
+                                                    homeMoreMenuOpen = false
+                                                    openedByLockscreen = false
+                                                    showStandbyDock = true
+                                                },
+                                            )
+                                        }
+                                        if (!Settings.canDrawOverlays(context)) {
+                                            DropdownMenuItem(
+                                                text = { Text("Allow Lock-Screen Overlay") },
+                                                onClick = {
+                                                    homeMoreMenuOpen = false
+                                                    runCatching {
+                                                        context.startActivity(
+                                                            Intent(
+                                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                                Uri.parse("package:${context.packageName}"),
+                                                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.sources)) },
+                                            onClick = {
+                                                homeMoreMenuOpen = false
+                                                navigator.push(AppRoute.Sources)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.settings)) },
+                                            onClick = {
+                                                homeMoreMenuOpen = false
+                                                navigator.push(AppRoute.Settings)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     },
                 )
@@ -4852,7 +5067,10 @@ private fun BitChordApp(
                 onPlayPause = { togglePlayPause() },
                 onNext = { controller?.seekToNextMediaItem() },
                 onPrevious = { controller?.seekToPrevious() },
-                onDismiss = { showStandbyDock = false },
+                onDismiss = {
+                    showStandbyDock = false
+                    openedByLockscreen = false
+                },
             )
         }
 

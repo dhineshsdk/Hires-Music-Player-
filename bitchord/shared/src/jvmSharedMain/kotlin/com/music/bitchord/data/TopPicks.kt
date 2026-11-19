@@ -68,6 +68,15 @@ object TopPicks {
         val genres: List<String> = emptyList(),
     )
 
+    /** Immediate Apple-Music-style Home lead cards available before or without YouTube history. */
+    fun defaultPicks(): List<TopPick> = listOf(
+        TopPick(kind = TopPickKind.PERSONAL_STATION),
+        TopPick(kind = TopPickKind.FAVOURITE_SONGS),
+        TopPick(kind = TopPickKind.DISCOVERY_STATION),
+        TopPick(kind = TopPickKind.MOOD, mood = TopPickMood.FEELING_BLUE, hints = regionHints()),
+        TopPick(kind = TopPickKind.MOOD, mood = TopPickMood.FEEL_GOOD, hints = regionHints()),
+    )
+
     suspend fun build(
         homeShelves: List<HomeShelf>,
         local: LocalTaste,
@@ -95,11 +104,13 @@ object TopPicks {
         val mixes = mixesAsync.await()
         Log.d(TAG, "topPicks: history=${history.size} artists=${artists.map { it.name }} mixes=${mixes.keys}")
 
-        // The first card is always the new release when there is one, as on
-        // Apple Music; the rest come in a different order every build.
+        // Pin Personal Station + Favourite Songs at the front like Apple Music's Home,
+        // then latest release and shuffled personalized stations/moods.
         val lead = latestRelease(artists)
+        val personal = personalStation(mixes, history, local) ?: TopPick(kind = TopPickKind.PERSONAL_STATION)
+        val favourites = TopPick(kind = TopPickKind.FAVOURITE_SONGS)
+        val discovery = discoveryStation(mixes, artists, history) ?: TopPick(kind = TopPickKind.DISCOVERY_STATION)
         val rest = buildList {
-            personalStation(mixes, history, local)?.let(::add)
             add(moodPick(now, local))
             artists.getOrNull(0)?.let { andSimilar(it, photos) }?.let(::add)
             artists.getOrNull(1)?.let { featured(it, photos) }?.let(::add)
@@ -115,9 +126,9 @@ object TopPicks {
                 )
             }
             artists.getOrNull(2)?.let { andSimilar(it, photos) }?.let(::add)
-            discoveryStation(mixes, artists, history)?.let(::add)
+            add(discovery)
         }.shuffled()
-        listOfNotNull(lead) + rest
+        listOf(personal, favourites) + listOfNotNull(lead) + rest
     }
 
     /**

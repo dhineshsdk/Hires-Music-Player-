@@ -48,7 +48,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -60,9 +59,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cached
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Storage
 import com.music.bitchord.ui.icons.BitChordIcons
 import coil3.compose.AsyncImage
@@ -73,6 +70,7 @@ import com.music.bitchord.data.model.ShelfItem
 import com.music.bitchord.data.model.ShelfLayout
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.data.model.UiState
 import java.util.Locale
@@ -89,7 +87,6 @@ import com.music.bitchord.ui.components.feedMoreSkeleton
 import com.music.bitchord.ui.components.feedSkeleton
 import com.music.bitchord.ui.components.recentlyPlayedSkeleton
 import com.music.bitchord.ui.components.thumbnailBorder
-import com.music.bitchord.ui.components.trackColumnWidth
 import com.music.bitchord.ui.player.MeshGradientBackground
 import com.music.bitchord.ui.player.MeshPalette
 
@@ -97,7 +94,6 @@ import com.music.bitchord.ui.player.MeshPalette
 private val HOME_TITLE_LIFT = 28.dp
 
 private const val RECENTS_TITLE = "Recents"
-private const val RECENT_TRACKS_PER_COLUMN = 4
 
 private fun List<ShelfItem>.playingItemMatcher(song: Song?): (ShelfItem) -> Boolean {
     song ?: return { false }
@@ -238,6 +234,7 @@ fun HomeScreen(
                         onMoodsShowAll = onMoodsShowAll,
                         onItemClick = onItemClick,
                         onItemLongPress = onItemLongPress,
+                        onStationClick = onTopPickClick,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
                     )
@@ -270,7 +267,7 @@ fun HomeScreen(
     }
 }
 
-/** Recents mirrors the artist page's top-tracks pager; other shelves use square cards. */
+/** Recents renders Apple Music's horizontal square cards row (`Recently Played >`); other shelves follow. */
 private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     shelves: List<HomeShelf>,
     onItemClick: (ShelfItem, String) -> Unit,
@@ -279,7 +276,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     isPlaying: Boolean,
     onMoodClick: ((TopPickMood, String) -> Unit)? = null,
     onMoodsShowAll: () -> Unit = {},
+    onStationClick: ((TopPick, String) -> Unit)? = null,
 ) {
+    val hasRecentsShelf = shelves.anyIndexedRecents()
+    if (!hasRecentsShelf && onStationClick != null) {
+        item(key = "recently-played-stations") {
+            RecentShelf(
+                shelf = HomeShelf(title = "Recently Played", items = emptyList(), layout = ShelfLayout.LIST),
+                onItemClick = { item -> onItemClick(item, "Recently Played") },
+                onItemLongPress = onItemLongPress,
+                onStationClick = onStationClick,
+                currentSong = currentSong,
+                isPlaying = isPlaying,
+            )
+        }
+    }
     shelves.forEachIndexed { index, shelf ->
         // Find Your Mood follows the lead shelf, as on Apple Music's Home.
         if (index == 1 && onMoodClick != null) {
@@ -287,8 +298,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
         }
         item(key = shelf.title + index) {
             val openItem: (ShelfItem) -> Unit = { item -> onItemClick(item, shelf.title) }
-            // Listen again and Quick picks are lists on the web player, as
-            // Recents is here: one pager for all three.
             if (shelf.layout == ShelfLayout.LIST ||
                 (index == 0 && shelf.title.equals(RECENTS_TITLE, ignoreCase = true))
             ) {
@@ -296,6 +305,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
                     shelf = shelf,
                     onItemClick = openItem,
                     onItemLongPress = onItemLongPress,
+                    onStationClick = onStationClick,
                     currentSong = currentSong,
                     isPlaying = isPlaying,
                 )
@@ -312,211 +322,121 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     }
 }
 
-/** The same four-rows-per-page treatment used by an artist's Top songs. */
+private fun List<HomeShelf>.anyIndexedRecents(): Boolean =
+    any { it.layout == ShelfLayout.LIST || it.title.equals(RECENTS_TITLE, ignoreCase = true) }
+
 @Composable
 private fun RecentShelf(
     shelf: HomeShelf,
     onItemClick: (ShelfItem) -> Unit,
     onItemLongPress: ((ShelfItem) -> Unit)?,
+    onStationClick: ((TopPick, String) -> Unit)?,
     currentSong: Song?,
     isPlaying: Boolean,
 ) {
     Column(Modifier.padding(bottom = 26.dp)) {
         RecentSectionHeader(title = localizeShelfTitle(shelf.title), subtitle = localizeShelfSubtitle(shelf.subtitle))
         val isCurrentItem = shelf.items.playingItemMatcher(currentSong)
-        val heroItems = if (shelf.items.size >= 2) shelf.items.take(4) else emptyList()
-        val remainingItems = if (heroItems.isNotEmpty()) shelf.items.drop(heroItems.size) else shelf.items
-
-        if (heroItems.isNotEmpty()) {
-            RecentHeroGrid(
-                items = heroItems,
-                onItemClick = onItemClick,
-                onItemLongPress = onItemLongPress,
-                isCurrentItem = isCurrentItem,
-                isPlaying = isPlaying,
-            )
-            if (remainingItems.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
-            }
-        }
-
-        if (remainingItems.isNotEmpty()) {
-            BoxWithConstraints {
-                val columnWidth = trackColumnWidth(maxWidth)
-                ShelfRow(
-                    contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(remainingItems.chunked(RECENT_TRACKS_PER_COLUMN)) { column ->
-                        Column(Modifier.width(columnWidth)) {
-                            column.forEach { item ->
-                                RecentTrackRow(
-                                    item = item,
-                                    onClick = { onItemClick(item) },
-                                    onLongPress = onItemLongPress?.let { { it(item) } },
-                                    isCurrent = isCurrentItem(item),
-                                    isPlaying = isCurrentItem(item) && isPlaying,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentHeroGrid(
-    items: List<ShelfItem>,
-    onItemClick: (ShelfItem) -> Unit,
-    onItemLongPress: ((ShelfItem) -> Unit)?,
-    isCurrentItem: (ShelfItem) -> Boolean,
-    isPlaying: Boolean,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = PAGE_GUTTER),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items.chunked(2).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowItems.forEach { item ->
-                    val current = isCurrentItem(item)
-                    RecentHeroCard(
-                        item = item,
-                        onClick = { onItemClick(item) },
-                        onLongPress = onItemLongPress?.let { { it(item) } },
-                        isCurrent = current,
-                        isPlaying = current && isPlaying,
-                        modifier = Modifier.weight(1f),
+        ShelfRow(
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            if (onStationClick != null) {
+                item(key = "station-discovery") {
+                    RecentStationCard(
+                        title = "Discovery Station",
+                        subtitle = "Radio Station",
+                        onClick = {
+                            onStationClick(
+                                TopPick(kind = TopPickKind.DISCOVERY_STATION),
+                                "Discovery Station",
+                            )
+                        },
+                        artwork = {
+                            DiscoveryStationArt(Modifier.fillMaxSize())
+                            AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp))
+                        },
                     )
                 }
-                if (rowItems.size == 1) {
-                    Spacer(Modifier.weight(1f))
+                item(key = "station-feeling-blue") {
+                    RecentStationCard(
+                        title = "Feeling Blue",
+                        subtitle = "Radio Station",
+                        onClick = {
+                            onStationClick(
+                                TopPick(kind = TopPickKind.MOOD, mood = TopPickMood.FEELING_BLUE),
+                                "Feeling Blue",
+                            )
+                        },
+                        artwork = {
+                            MoodArt(
+                                mood = TopPickMood.FEELING_BLUE,
+                                style = TopPickMood.FEELING_BLUE.style(),
+                                modifier = Modifier.fillMaxSize(),
+                                square = true,
+                            )
+                            AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp))
+                        },
+                    )
                 }
+                item(key = "station-feel-good") {
+                    RecentStationCard(
+                        title = "Feel Good",
+                        subtitle = "Radio Station",
+                        onClick = {
+                            onStationClick(
+                                TopPick(kind = TopPickKind.MOOD, mood = TopPickMood.FEEL_GOOD),
+                                "Feel Good",
+                            )
+                        },
+                        artwork = {
+                            MoodArt(
+                                mood = TopPickMood.FEEL_GOOD,
+                                style = TopPickMood.FEEL_GOOD.style(),
+                                modifier = Modifier.fillMaxSize(),
+                                square = true,
+                            )
+                            AurexCardBadge(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp))
+                        },
+                    )
+                }
+            }
+            items(shelf.items) { item ->
+                ShelfCard(
+                    item = item,
+                    onClick = { onItemClick(item) },
+                    onLongPress = onItemLongPress?.let { { it(item) } },
+                    isCurrent = isCurrentItem(item),
+                    isPlaying = isCurrentItem(item) && isPlaying,
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecentHeroCard(
-    item: ShelfItem,
+private fun RecentStationCard(
+    title: String,
+    subtitle: String,
     onClick: () -> Unit,
-    onLongPress: (() -> Unit)?,
-    isCurrent: Boolean,
-    isPlaying: Boolean,
-    modifier: Modifier = Modifier,
+    artwork: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .clip(shape)
-            .thumbnailBorder(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .longPressMenuClickable(onClick = onClick, onLongClick = onLongPress)
-            .contextClick(onLongPress),
-    ) {
-        AsyncImage(
-            model = item.thumbnailUrl.artworkAt(CARD_ART_PX),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.45f to Color.Transparent,
-                        1.0f to Color.Black.copy(alpha = 0.84f),
-                    ),
-                ),
-        )
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = localizeCardSubtitle(item.subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.24f))
-                        .clickable(onClick = onClick),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (isCurrent && isPlaying) {
-                        SearchPlayingBars(Modifier.size(14.dp))
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                }
-                if (onLongPress != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.24f))
-                            .clickable(onClick = onLongPress),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.MoreHoriz,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentSectionHeader(title: String, subtitle: String) {
     Column(
         modifier = Modifier
-            .padding(horizontal = PAGE_GUTTER, vertical = 10.dp)
-            .fillMaxWidth(),
+            .width(SHELF_CARD_WIDTH)
+            .clickable(onClick = onClick),
     ) {
+        val shape = RoundedCornerShape(12.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(shape)
+                .thumbnailBorder(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            content = artwork,
+        )
+        Spacer(Modifier.height(10.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
@@ -524,6 +444,40 @@ private fun RecentSectionHeader(title: String, subtitle: String) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun RecentSectionHeader(title: String, subtitle: String) {
+    val heading = if (title.equals("Recents", ignoreCase = true)) "Recently Played" else title
+    Column(
+        modifier = Modifier
+            .padding(horizontal = PAGE_GUTTER, vertical = 10.dp)
+            .fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = heading,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = BitChordIcons.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
         if (subtitle.isNotBlank()) {
             Text(
                 text = subtitle,
@@ -534,26 +488,6 @@ private fun RecentSectionHeader(title: String, subtitle: String) {
             )
         }
     }
-}
-
-@Composable
-private fun RecentTrackRow(
-    item: ShelfItem,
-    onClick: () -> Unit,
-    onLongPress: (() -> Unit)?,
-    isCurrent: Boolean,
-    isPlaying: Boolean,
-) {
-    CompactTrackRow(
-        title = item.title,
-        subtitle = item.subtitle,
-        thumbnailUrl = item.thumbnailUrl,
-        onClick = onClick,
-        onLongPress = onLongPress,
-        isCurrent = isCurrent,
-        isPlaying = isPlaying,
-        isVideo = item.isVideo,
-    )
 }
 
 /**
