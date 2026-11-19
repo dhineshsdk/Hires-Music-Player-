@@ -74,6 +74,7 @@ internal fun StandbyLyricTheatre(
     artist: String,
     durationMs: Long,
     lrcText: String,
+    lyricTheme: StandbyLyricTheme = StandbyLyricTheme.CLASSY,
     artBitmap: Bitmap?,
     isPlaying: Boolean,
     position: PlaybackPosition,
@@ -118,8 +119,15 @@ internal fun StandbyLyricTheatre(
                 artist = artist,
                 durationMs = durationMs,
                 lrc = lrcText,
+                theme = lyricTheme.id,
                 schemes = schemes,
             )
+        }
+    }
+
+    LaunchedEffect(ready, lyricTheme) {
+        if (ready) {
+            page.setTheme(lyricTheme.id)
         }
     }
 
@@ -221,6 +229,7 @@ internal class LyricPage(context: Context) {
         artist: String,
         durationMs: Long,
         lrc: String,
+        theme: String = StandbyLyricTheme.CLASSY.id,
         schemes: JSONArray?,
     ) {
         val json = JSONObject()
@@ -229,8 +238,16 @@ internal class LyricPage(context: Context) {
             .put("artist", artist)
             .put("durationMs", durationMs.coerceAtLeast(0L))
             .put("lrc", lrc)
+            .put("theme", theme)
             .put("schemes", schemes ?: JSONObject.NULL)
         view.evaluateJavascript("window.lyric && window.lyric.setSong($json)", null)
+    }
+
+    fun setTheme(themeId: String) {
+        if (_ready.value) {
+            val quoted = JSONObject.quote(themeId)
+            view.evaluateJavascript("window.lyric && window.lyric.setTheme && window.lyric.setTheme($quoted)", null)
+        }
     }
 
     fun setColors(key: String, schemes: JSONArray?) {

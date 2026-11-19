@@ -79,7 +79,9 @@
 
     let song = null;             // { key, title, artist, durationMs, lyrics }
     let schemes = null;          // colour schemes derived from the album art (from Android), or null
-    let look = null;             // JIZURA random look (omakase) on top of the default project
+    let currentTheme = 'classy';
+    let rerollCounter = 0;
+    let look = null;             // JIZURA look on top of the default project
     let plan = null;
     let planAspect = null;       // JIZURA aspect key the plan was built for
     let anchor = null;           // { positionMs, playing, speed, at: performance.now() }
@@ -87,6 +89,114 @@
     let lastDrawAt = 0;
     // frame-time stats, logged every 10 s (visible in logcat through the WebChromeClient)
     let statFrames = 0, statDraw = 0, statMax = 0, statSince = performance.now(), statTicks = 0;
+
+    const THEME_CONFIGS = {
+        classy: {
+            mood: 'calm',
+            styles: ['gold', 'specimen'],
+            useThemePalette: true,
+            schemes: [
+                { bg: '#080706', fg: '#F5ECD7', sub: '#B89F6D', accent: '#D4AF37', accent2: '#FFF3D1', ink: '#D4AF37', dim: '#16130E', ghostA: '#D4AF37', ghostB: '#6E5228', grad: ['#FFE8A3', '#B88928'] },
+                { bg: '#0E0D10', fg: '#F2EFE9', sub: '#A39E93', accent: '#C8B273', accent2: '#F2EFE9', ink: '#C8B273', dim: '#1B1A1E', ghostA: '#C8B273', ghostB: '#5E584C', grad: ['#EFE6CE', '#9E8852'] },
+            ],
+            fx: { motion: 0.35, glitch: 0, chroma: 0.12, decor: 0.4, density: 0.35, texture: 0.45, bgSwitch: 0.08, hud: 'off', koma: 0, onTwos: false, flash: false },
+            enabled: {
+                layout: ['center', 'frameBox', 'quote', 'credits', 'lowerThird', 'justified', 'circle', 'vcols'],
+                enter: ['blur', 'fadeStagger', 'blurStagger', 'trackIn', 'riseMask', 'wipe'],
+                exit: ['dissolve', 'drift', 'blur', 'trackOutWide', 'riseOut'],
+                hold: ['still', 'drift', 'breathe'],
+                decor: ['twinkle', 'bokeh', 'lightLeak', 'constellation', 'leaders', 'rings'],
+                treat: ['gradientV', 'glow', 'softShadow', 'tall', 'none'],
+                bg: ['spotlight', 'bokehBg', 'letterbox', 'particlesBg', 'none'],
+                cam: ['dollyIn', 'pullOut', 'driftDiag', 'push'],
+                fx: ['lightSweep', 'whiteFrame'],
+            },
+        },
+        cyberpunk: {
+            mood: 'glitch',
+            styles: ['synth80', 'acid', 'hud'],
+            useThemePalette: true,
+            schemes: [
+                { bg: '#05040A', fg: '#00F0FF', sub: '#7090B0', accent: '#FF0055', accent2: '#FCEE09', ink: '#00F0FF', dim: '#0E0B1A', ghostA: '#FF0055', ghostB: '#00F0FF', grad: ['#00F0FF', '#FF0055'] },
+                { bg: '#06030D', fg: '#FCEE09', sub: '#00F0FF', accent: '#FF0055', accent2: '#00F0FF', ink: '#FF0055', dim: '#140924', ghostA: '#00F0FF', ghostB: '#FF0055', grad: ['#FCEE09', '#FF0055'] },
+            ],
+            fx: { motion: 0.85, glitch: 0.85, chroma: 0.85, decor: 0.8, density: 0.75, texture: 0.65, bgSwitch: 0.25, hud: 'on', koma: 0, onTwos: false, flash: true },
+            enabled: {
+                layout: ['neon', 'dotMatrix', 'equalizer', 'marquee', 'tunnel', 'perspective', 'condensed', 'tile', 'rain', 'crossBands'],
+                enter: ['neonOn', 'glitchIn', 'scramble', 'slice', 'flicker', 'cursorSweep', 'vSlice'],
+                exit: ['glitchDissolve', 'scrambleOut', 'glitch', 'slice', 'zoomThrough'],
+                hold: ['still', 'glitchtick', 'jitter'],
+                decor: ['hud', 'reticle', 'crosshair', 'timecodeBar', 'barcode', 'glitchRects', 'qrBlock', 'beatRing', 'lineBurst'],
+                treat: ['glow', 'echoOutline', 'extrude', 'hardShadow', 'none'],
+                bg: ['retroGrid', 'scanBars', 'eqBars', 'noiseField', 'tvBars', 'none'],
+                cam: ['beatPunch', 'stepZoom', 'dollyIn', 'whipIn', 'push'],
+                fx: ['rgbSplit', 'pixelDrift', 'tileShift', 'strobe', 'chroma', 'slice'],
+            },
+        },
+        ambient: {
+            mood: 'calm',
+            styles: ['ocean', 'sunset'],
+            useThemePalette: true,
+            schemes: [
+                { bg: '#031322', fg: '#E6FAFF', sub: '#79B4C9', accent: '#1FD2E6', accent2: '#5B8CFF', ink: '#1FD2E6', dim: '#082238', ghostA: '#1FD2E6', ghostB: '#4B6BFF', grad: ['#7FF6FF', '#2E6BFF'] },
+                { bg: '#070F26', fg: '#EAE6FF', sub: '#8E88C7', accent: '#7DF9FF', accent2: '#B388FF', ink: '#7DF9FF', dim: '#111C3D', ghostA: '#7DF9FF', ghostB: '#9C6BFF', grad: ['#7DF9FF', '#9C6BFF'] },
+            ],
+            fx: { motion: 0.45, glitch: 0, chroma: 0.25, decor: 0.55, density: 0.4, texture: 0.4, bgSwitch: 0.15, hud: 'off', koma: 0, onTwos: false, flash: false },
+            enabled: {
+                layout: ['depthStack', 'center', 'wave', 'orbit', 'perspective', 'lowerThird', 'arcTop', 'circle'],
+                enter: ['riseMask', 'blur', 'waveIn', 'blurStagger', 'fadeStagger', 'echoIn'],
+                exit: ['riseOut', 'zoomFar', 'dissolve', 'blur', 'drift'],
+                hold: ['still', 'drift', 'breathe'],
+                decor: ['risingParticles', 'bokeh', 'waveLine', 'orbitDots', 'beatRing', 'lightLeak'],
+                treat: ['glow', 'softShadow', 'gradientV', 'none'],
+                bg: ['ripples', 'particlesBg', 'gradientSweep', 'bokehBg', 'concentric', 'none'],
+                cam: ['driftDiag', 'dollyIn', 'pullOut', 'tiltUp', 'push'],
+                fx: ['waveWarp', 'lightSweep'],
+            },
+        },
+        noir: {
+            mood: 'editorial',
+            styles: ['noir', 'mono'],
+            useThemePalette: true,
+            schemes: [
+                { bg: '#060607', fg: '#F4F0EA', sub: '#9E9A95', accent: '#F5A50C', accent2: '#16F4D4', ink: '#F4F0EA', dim: '#18181B', ghostA: '#F5A50C', ghostB: '#16F4D4' },
+                { bg: '#0C0D0F', fg: '#FFFFFF', sub: '#8C8E94', accent: '#FFFFFF', accent2: '#D8DADF', ink: '#FFFFFF', dim: '#1A1B1E', ghostA: '#FF3B3B', ghostB: '#3BA8FF' },
+            ],
+            fx: { motion: 0.45, glitch: 0.08, chroma: 0.35, decor: 0.35, density: 0.4, texture: 0.85, bgSwitch: 0.1, hud: 'off', koma: 0, onTwos: false, flash: false },
+            enabled: {
+                layout: ['center', 'condensed', 'vcols', 'quote', 'type', 'lowerThird', 'splitScreen', 'frameBox'],
+                enter: ['type', 'assemble', 'blur', 'wipe', 'trackIn'],
+                exit: ['drift', 'blur', 'wipe', 'dissolve'],
+                hold: ['still', 'drift'],
+                decor: ['rings', 'leaders', 'slash', 'cropMarks', 'verticalStrip'],
+                treat: ['softShadow', 'tall', 'underline', 'none'],
+                bg: ['letterbox', 'spotlight', 'borderFrame', 'none'],
+                cam: ['dollyIn', 'pullOut', 'panL', 'panR', 'push'],
+                fx: ['filmBurn', 'blackFrame', 'chroma'],
+            },
+        },
+        funky: {
+            useThemePalette: false,
+        },
+    };
+
+    function buildEnabledForTheme(cfg, baseEnabled) {
+        const result = Object.assign({}, baseEnabled);
+        for (const [g, allowList] of Object.entries(cfg.enabled || {})) {
+            const allowSet = new Set(allowList);
+            const groupMap = {};
+            const keys = J.order(g);
+            for (const k of keys) groupMap[k] = allowSet.has(k);
+            if (g === 'enter' && groupMap.cut !== undefined) groupMap.cut = true;
+            if (g === 'exit' && groupMap.cut !== undefined) groupMap.cut = true;
+            if (g === 'hold' && groupMap.still !== undefined) groupMap.still = true;
+            if (g === 'treat' && groupMap.none !== undefined) groupMap.none = true;
+            if (g === 'bg' && groupMap.none !== undefined) groupMap.none = true;
+            if (g === 'cam' && groupMap.push !== undefined) groupMap.push = true;
+            result[g] = groupMap;
+        }
+        return result;
+    }
 
     function hashString(s) {
         let h = 0x811c9dc5;
@@ -102,25 +212,42 @@
         return `${w / g}:${h / g}`;
     }
 
-    /** A random look seeded by the track, so a song always opens the same way. */
-    function rollLook(seed) {
-        const rnd = seed == null ? Math.random : J.rng(seed);
+    /** A look seeded by the track & theme, so each song opens in the user's chosen aesthetic. */
+    function rollLook(seed, themeId = currentTheme) {
+        const rnd = seed == null ? Math.random : J.rng(hashString(`${seed}:${themeId}:${rerollCounter}`));
         // wa: false = no 和風 motifs (提灯・障子・家紋…); horror stays off
         const base = Object.assign(J.defaultProject(), { extra: true, typo: true, kinetic: true, wa: false, horror: false });
-        let look = J.omakase(base, rnd);
+        let picked = J.omakase(base, rnd);
         // belt and braces: the look must not land on an excluded style
-        for (let i = 0; i < 8 && EXCLUDED_STYLES.has(look.style); i++) look = J.omakase(base, rnd);
-        return look;
+        for (let i = 0; i < 8 && EXCLUDED_STYLES.has(picked.style); i++) picked = J.omakase(base, rnd);
+
+        const cfg = THEME_CONFIGS[themeId];
+        if (cfg && cfg.useThemePalette) {
+            const availStyles = (cfg.styles || []).filter(k => J.STYLES[k]);
+            if (availStyles.length) {
+                picked.style = availStyles[Math.floor(rnd() * availStyles.length) % availStyles.length];
+            }
+            if (cfg.mood) picked.mood = cfg.mood;
+            picked.fx = Object.assign({}, picked.fx, cfg.fx);
+            picked.enabled = buildEnabledForTheme(cfg, picked.enabled);
+            picked.colors = Object.assign({}, base.colors, { enabled: false, accentOn: false });
+        }
+        return picked;
     }
 
     /**
      * JIZURA resolves the style once per plan (a deep copy), and the renderer reads colours from
-     * that copy. Wrap resolveStyle so the album-art schemes replace the style's own.
+     * that copy. Wrap resolveStyle so curated themes or album-art schemes replace the style's own.
      */
     const baseResolveStyle = J.resolveStyle;
     J.resolveStyle = (project) => {
         const st = baseResolveStyle(project);
-        if (schemes && schemes.length) st.schemes = schemes.map(sc => Object.assign({}, sc));
+        const cfg = THEME_CONFIGS[currentTheme];
+        if (cfg && cfg.useThemePalette && Array.isArray(cfg.schemes) && cfg.schemes.length) {
+            st.schemes = cfg.schemes.map(sc => Object.assign({}, sc));
+        } else if (schemes && schemes.length) {
+            st.schemes = schemes.map(sc => Object.assign({}, sc));
+        }
         return st;
     };
 
@@ -133,15 +260,15 @@
         }, look);
         // per-part palettes of layouts / motions; without it every cut is an independent draw
         project.unify = true;
-        // JIZURA's HUD (title bar, REC, timecode, LYRIC n/m) is off: the standby screen has its own clock and track info.
-        // koma 0 = draw every frame: the random look may pick a 12 / 8 fps hand-drawn stepping, which reads as stutter here.
-        project.fx = Object.assign({}, project.fx, { hud: 'off', koma: 0, onTwos: false });
+        // koma 0 = draw every frame; HUD is enabled in cyberpunk theme and off in calmer themes.
+        const hudMode = currentTheme === 'cyberpunk' ? 'on' : 'off';
+        project.fx = Object.assign({}, project.fx, { hud: hudMode, koma: 0, onTwos: false });
         // LRC times are the whole timing: no BPM grid to snap to.
         project.timing = Object.assign({}, project.timing, { bpm: 0, snap: false });
         project.enabled = Object.assign({}, J.defaultProject().enabled, look.enabled);
         plan = J.plan(project, song.durationMs ? { duration: song.durationMs / 1000 } : null);
-        console.log(`look: style=${project.style} (${(J.STYLES[project.style] || {}).name || '?'}) mood=${project.mood} ` +
-            `colours=${schemes ? 'album art' : 'style'} cuts=${plan.cuts.length}`);
+        console.log(`theme=${currentTheme} look: style=${project.style} (${(J.STYLES[project.style] || {}).name || '?'}) mood=${project.mood} ` +
+            `cuts=${plan.cuts.length}`);
         lastT = -1;
         sizeCanvas();
         J.ensureFonts(song.lyrics + song.title + song.artist + HUD_CHARS, J.fontsOfPlan(plan))
@@ -226,27 +353,44 @@
     });
 
     window.lyric = {
-        /** @param {{key: string, title: string, artist: string, durationMs: number, lrc: string, schemes?: object[]}} s */
+        /** @param {{key: string, title: string, artist: string, durationMs: number, lrc: string, theme?: string, schemes?: object[]}} s */
         setSong(s) {
+            if (s.theme && THEME_CONFIGS[s.theme]) {
+                currentTheme = s.theme;
+            }
             if (song && song.key === s.key) return;
             const { lyrics } = window.lrcToJizura(s.lrc);
             song = { key: s.key, title: s.title, artist: s.artist, durationMs: s.durationMs, lyrics };
             schemes = Array.isArray(s.schemes) && s.schemes.length ? s.schemes : null;
-            look = rollLook(hashString(s.key));
+            look = rollLook(s.key, currentTheme);
+            buildPlan();
+        },
+        /** Switch visual theme (`classy`, `cyberpunk`, `ambient`, `noir`, `funky`) and rebuild plan. */
+        setTheme(themeId) {
+            const next = THEME_CONFIGS[themeId] ? themeId : 'classy';
+            if (currentTheme === next && plan) return;
+            currentTheme = next;
+            if (!song) return;
+            look = rollLook(song.key, currentTheme);
             buildPlan();
         },
         /**
          * Colour schemes from the album art, which may arrive after the song (the art loads
-         * asynchronously). The plan holds its own resolved style, so swap its schemes in place:
-         * the renderer picks them up on the next frame, no rebuild.
+         * asynchronously). Curated themes keep their own palette; `funky` swaps in album-art colors.
          * @param {{key: string, schemes: object[]|null}} c
          */
         setColors(c) {
             if (!song || song.key !== c.key) return;
             schemes = Array.isArray(c.schemes) && c.schemes.length ? c.schemes : null;
             if (plan && plan.style) {
-                if (schemes) plan.style.schemes = schemes.map(sc => Object.assign({}, sc));
-                else plan.style.schemes = baseResolveStyle({ style: look.style }).schemes;
+                const cfg = THEME_CONFIGS[currentTheme];
+                if (cfg && cfg.useThemePalette && Array.isArray(cfg.schemes) && cfg.schemes.length) {
+                    plan.style.schemes = cfg.schemes.map(sc => Object.assign({}, sc));
+                } else if (schemes) {
+                    plan.style.schemes = schemes.map(sc => Object.assign({}, sc));
+                } else {
+                    plan.style.schemes = baseResolveStyle({ style: look.style }).schemes;
+                }
                 lastT = -1;
             }
         },
@@ -258,8 +402,13 @@
         setAnchor(a) {
             anchor = { positionMs: a.positionMs, playing: !!a.playing, speed: a.speed || 1, at: performance.now() };
         },
-        /** A fresh random look for the current song. */
-        reroll() { if (!song) return; look = rollLook(null); buildPlan(); },
+        /** A fresh random look within the current theme for the active song. */
+        reroll() {
+            if (!song) return;
+            rerollCounter++;
+            look = rollLook(null, currentTheme);
+            buildPlan();
+        },
     };
 
     requestAnimationFrame(tick);

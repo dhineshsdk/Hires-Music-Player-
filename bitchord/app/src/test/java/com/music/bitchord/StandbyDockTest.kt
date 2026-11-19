@@ -6,6 +6,7 @@ import com.music.bitchord.data.model.Song
 import com.music.bitchord.playback.provider.PlaybackProviderKind
 import com.music.bitchord.ui.standby.StandbyArtColors
 import com.music.bitchord.ui.standby.StandbyLyricsStatus
+import com.music.bitchord.ui.standby.StandbyLyricTheme
 import com.music.bitchord.ui.standby.StandbyPresentation
 import com.music.bitchord.ui.standby.buildTheatreLrcText
 import com.music.bitchord.ui.standby.classifyStandbyLyrics
@@ -353,5 +354,17 @@ class StandbyDockTest {
         assertTrue(fallbackLrc.contains("Powerhouse x Disco"))
         assertTrue(fallbackLrc.contains("Anirudh Ravichander"))
         assertTrue(fallbackLrc.contains("Coolie"))
+    }
+
+    @Test
+    fun `StandbyLyricTheme resolves curated and fallback themes`() {
+        assertEquals(StandbyLyricTheme.CLASSY, StandbyLyricTheme.fromId(null))
+        assertEquals(StandbyLyricTheme.CLASSY, StandbyLyricTheme.fromId("unknown"))
+        assertEquals(StandbyLyricTheme.CLASSY, StandbyLyricTheme.fromId("classy"))
+        assertEquals(StandbyLyricTheme.CYBERPUNK, StandbyLyricTheme.fromId("CYBERPUNK"))
+        assertEquals(StandbyLyricTheme.AMBIENT, StandbyLyricTheme.fromId("ambient"))
+        assertEquals(StandbyLyricTheme.NOIR, StandbyLyricTheme.fromId("noir"))
+        assertEquals(StandbyLyricTheme.FUNKY, StandbyLyricTheme.fromId("funky"))
+        assertEquals(5, StandbyLyricTheme.entries.size)
     }
 }

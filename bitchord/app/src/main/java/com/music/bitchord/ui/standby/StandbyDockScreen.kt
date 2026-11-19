@@ -16,6 +16,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -312,6 +314,8 @@ fun StandbyDockDialog(
     lyricsChecked: Boolean = true,
     lyricsEnabled: Boolean = true,
     lyricsOffsetMs: Int = 0,
+    lyricTheme: StandbyLyricTheme = StandbyLyricTheme.CLASSY,
+    onLyricThemeChange: (StandbyLyricTheme) -> Unit = {},
     onSeek: (Long) -> Unit = {},
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -351,6 +355,8 @@ fun StandbyDockDialog(
             lyricsChecked = lyricsChecked,
             lyricsEnabled = lyricsEnabled,
             lyricsOffsetMs = lyricsOffsetMs,
+            lyricTheme = lyricTheme,
+            onLyricThemeChange = onLyricThemeChange,
             onSeek = onSeek,
             window = dialogWindow,
             bedsideLocked = bedsideLocked,
@@ -375,6 +381,8 @@ fun StandbyDockScreen(
     lyricsChecked: Boolean = true,
     lyricsEnabled: Boolean = true,
     lyricsOffsetMs: Int = 0,
+    lyricTheme: StandbyLyricTheme = StandbyLyricTheme.CLASSY,
+    onLyricThemeChange: (StandbyLyricTheme) -> Unit = {},
     onSeek: (Long) -> Unit = {},
     window: Window? = null,
     bedsideLocked: Boolean = false,
@@ -638,6 +646,7 @@ fun StandbyDockScreen(
                         artist = activeSong.artist,
                         durationMs = durationMs,
                         lrcText = lrcText,
+                        lyricTheme = lyricTheme,
                         artBitmap = activeArt,
                         isPlaying = isPlaying,
                         position = position,
@@ -1023,6 +1032,32 @@ fun StandbyDockScreen(
                                     preferredPresentationName = StandbyPresentation.LYRIC_THEATRE.name
                                 },
                             )
+                        }
+                    }
+                }
+
+                if (effectivePresentation == StandbyPresentation.LYRIC_THEATRE) {
+                    Surface(
+                        color = HudScrim,
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            StandbyLyricTheme.entries.forEach { theme ->
+                                DockModeChip(
+                                    label = theme.chipLabel,
+                                    active = lyricTheme == theme,
+                                    onClick = {
+                                        hudInteractionTick++
+                                        onLyricThemeChange(theme)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

@@ -162,3 +162,14 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
 - **Verification & Live Hardware Test (`SM_S926B`):**
   - `./gradlew.bat :app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug '-Pbitchord.bundleWear=false' --console=plain`: `BUILD SUCCESSFUL`; `:app:testDevDebugUnitTest` **1,275** tests (**0 failed**, **1 skipped**), `:shared:jvmTest` **122** tests (**0 failed**), `:app:lintDevDebug` **0 errors** (`714` warnings, `6` info/hints).
   - Installed updated `app-dev-arm64-v8a-debug.apk` on `SM_S926B`, verified live Home UI hierarchy (`Home` -> `Top Picks for You` -> `Recently Played` -> `Albums & singles`), and tested live `KEYCODE_POWER (26)` screen-off wakeup: verified `Aurex:StandbyLockscreen` (`ACQUIRE_CAUSES_WAKEUP`), `BAL_ALLOW_SAW_PERMISSION` launch, `isKeyguardShowing=true`, and active fullscreen `PassThroughWebView` (`Gallery` / `Lyrics` / `Theatre`, `Reroll lyric style`, track metadata `STAYIN' ALIVE — BEE GEES`) rendered over lockscreen.
+
+### StaaaaandBy Multi-Theme Lyric Theatre (2026-11-19)
+
+- **Curated Themes Implemented (`StandbyLyricTheme`, default `Classy Gold`):**
+  - Added `StandbyLyricTheme` (`CLASSY`, `CYBERPUNK`, `AMBIENT`, `NOIR`, `FUNKY`) in `StandbyArtColors.kt` persisted via `AppSettings.standbyLyricTheme` (`KEY_STANDBY_LYRIC_THEME`).
+  - Added curated `THEME_CONFIGS` and `setTheme(themeId)` in `assets/lyric/lyric.js` (keeping curated palettes for `Classy Gold`, `Cyberpunk Neon`, `Deep Ocean`, and `Cinema Noir`, and restoring album-art dynamic palettes for `Funky Kinetic`; explicitly setting all `J.order(g)` flags so disabled effects stay off).
+  - Wired `lyricTheme` & `onLyricThemeChange` into `StandbyLyricTheatre.kt` (`setTheme`), `StandbyDockScreen.kt` (scrollable 5-chip HUD bar below `Gallery | Lyrics | Theatre`), `MainActivity.kt` (Home `⋮` `Lyric Theme: ...` cycler + Dock dialog wiring), and `StandbyDockTest.kt`.
+- **Verification & Live Hardware Test (`SM_S926B`):**
+  - `node --check lyric.js`: exit 0.
+  - `./gradlew.bat :app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug '-Pbitchord.bundleWear=false' --console=plain`: `BUILD SUCCESSFUL`; `:app:testDevDebugUnitTest` **1,276** tests (**0 failed**, **1 skipped**), `:shared:jvmTest` **122** tests (**0 failed**), `:app:lintDevDebug` **0 errors** (`716` warnings, `6` info/hints).
+  - Installed `app-dev-arm64-v8a-debug.apk` on `SM_S926B`, launched `EXTRA_LOCKSCREEN_STANDBY`, observed `Classy` / `Cyberpunk` / `Ambient` / `Noir` / `Funky` HUD chips and WebView theme switch logs (`theme=classy look: style=gold (金夜) mood=calm`, `theme=cyberpunk look: style=synth80 (シンセ80s) mood=glitch`).

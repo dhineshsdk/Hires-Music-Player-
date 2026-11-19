@@ -177,6 +177,7 @@ import com.music.bitchord.ui.components.VolumeHud
 import com.music.bitchord.ui.components.rememberRemoteArtworkUrl
 import com.music.bitchord.ui.standby.StandbyDockDialog
 import com.music.bitchord.ui.standby.StandbyLockscreenController
+import com.music.bitchord.ui.standby.StandbyLyricTheme
 import com.music.bitchord.ui.navigation.AppDestination
 import com.music.bitchord.ui.navigation.AppRoute
 import com.music.bitchord.ui.screens.EqualizerPresetPage
@@ -727,6 +728,10 @@ private fun BitChordApp(
     var openedByLockscreen by rememberSaveable { mutableStateOf(false) }
     var homeMoreMenuOpen by remember { mutableStateOf(false) }
     val lockscreenLyricsEnabled by AppSettings.lockscreenLyricsEnabled.collectAsStateWithLifecycle()
+    val standbyLyricThemeId by AppSettings.standbyLyricTheme.collectAsStateWithLifecycle()
+    val standbyLyricTheme = remember(standbyLyricThemeId) {
+        StandbyLyricTheme.fromId(standbyLyricThemeId)
+    }
     /**
      * Whether the track menu that is up was opened from the player.
      *
@@ -4304,6 +4309,14 @@ private fun BitChordApp(
                                             },
                                         )
                                         DropdownMenuItem(
+                                            text = { Text("Lyric Theme: ${standbyLyricTheme.fullLabel}") },
+                                            onClick = {
+                                                val allThemes = StandbyLyricTheme.entries
+                                                val nextTheme = allThemes[(standbyLyricTheme.ordinal + 1) % allThemes.size]
+                                                AppSettings.setStandbyLyricTheme(nextTheme.id)
+                                            },
+                                        )
+                                        DropdownMenuItem(
                                             text = { Text("Launch Lock-Screen Lyric Showcase") },
                                             onClick = {
                                                 homeMoreMenuOpen = false
@@ -5058,6 +5071,8 @@ private fun BitChordApp(
                 lyricsChecked = if (playerSong != null) lyricsChecked else true,
                 lyricsEnabled = if (playerSong != null) syncedLyricsEnabled && lyricsSources.isNotEmpty() else true,
                 lyricsOffsetMs = dockLyricsOffsetMs,
+                lyricTheme = standbyLyricTheme,
+                onLyricThemeChange = { AppSettings.setStandbyLyricTheme(it.id) },
                 onSeek = { target ->
                     val duration = player.durationMs
                     controller?.seekTo(

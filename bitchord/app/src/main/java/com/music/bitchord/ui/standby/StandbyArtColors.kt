@@ -29,6 +29,23 @@ enum class StandbyPresentation {
     NIGHT_CLOCK,
 }
 
+enum class StandbyLyricTheme(
+    val id: String,
+    val chipLabel: String,
+    val fullLabel: String,
+) {
+    CLASSY("classy", "Classy", "Classy Gold"),
+    CYBERPUNK("cyberpunk", "Cyberpunk", "Cyberpunk Neon"),
+    AMBIENT("ambient", "Ambient", "Deep Ocean"),
+    NOIR("noir", "Noir", "Cinema Noir"),
+    FUNKY("funky", "Funky", "Funky Kinetic");
+
+    companion object {
+        fun fromId(id: String?): StandbyLyricTheme =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: CLASSY
+    }
+}
+
 internal fun classifyStandbyLyrics(
     lyricsEnabled: Boolean,
     lyricsChecked: Boolean,
