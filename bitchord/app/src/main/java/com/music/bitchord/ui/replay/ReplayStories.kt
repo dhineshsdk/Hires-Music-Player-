@@ -57,7 +57,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -412,20 +411,6 @@ private fun StoryChrome(
                 fontWeight = FontWeight.W700,
                 color = Color.White,
                 modifier = Modifier.weight(1f),
-            )
-            // The mark and the word together, the way the card carries it.
-            Icon(
-                painter = painterResource(R.drawable.ic_logo),
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.9f),
-                modifier = Modifier.size(width = 26.dp, height = 17.dp),
-            )
-            Spacer(Modifier.width(7.dp))
-            Text(
-                text = "BitChord",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.W700,
-                color = Color.White.copy(alpha = 0.9f),
             )
         }
     }

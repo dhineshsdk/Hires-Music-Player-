@@ -112,7 +112,6 @@ import com.music.bitchord.ui.components.ShimmerBox
 import com.music.bitchord.ui.components.contextClick
 import com.music.bitchord.ui.components.longPressMenuClickable
 import com.music.bitchord.ui.components.thumbnailBorder
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.PI
 import kotlin.math.abs
@@ -289,29 +288,24 @@ private fun TopPickCard(
             .contextClick(longPress),
     ) {
         val eyebrowColor: Color
-        val branded: Boolean
         when (pick.kind) {
             TopPickKind.PERSONAL_STATION -> {
                 PersonalStationArt(Modifier.fillMaxSize())
                 eyebrowColor = Color(0xFFFFD2DA)
-                branded = true
             }
             TopPickKind.DISCOVERY_STATION -> {
                 DiscoveryStationArt(Modifier.fillMaxSize())
                 eyebrowColor = Color(0xFFCDBDFF)
-                branded = true
             }
             TopPickKind.MOOD -> {
                 val style = (pick.mood ?: TopPickMood.FEEL_GOOD).style()
                 MoodArt(pick.mood ?: TopPickMood.FEEL_GOOD, style, Modifier.fillMaxSize())
                 eyebrowColor = style.eyebrow
-                branded = true
             }
             TopPickKind.ARTIST_AND_SIMILAR -> {
                 val palette = collagePalette(pick.artistName.orEmpty())
                 ArtistCollageArt(pick.images, palette, Modifier.fillMaxSize())
                 eyebrowColor = palette.eyebrow
-                branded = true
             }
             TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX -> {
                 ReleaseArt(
@@ -325,7 +319,6 @@ private fun TopPickCard(
                     },
                 )
                 eyebrowColor = PhotoEyebrow
-                branded = false
             }
             TopPickKind.FEATURED_ARTIST -> {
                 AsyncImage(
@@ -349,20 +342,7 @@ private fun TopPickCard(
                         ),
                 )
                 eyebrowColor = PhotoEyebrow
-                branded = false
             }
-        }
-        if (branded) {
-            Icon(
-                painter = painterResource(Res.drawable.ic_logo),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 12.dp, end = 12.dp)
-                    .height(15.dp)
-                    .aspectRatio(730f / 484f),
-            )
         }
         CardCaption(text, eyebrowColor, Modifier.align(Alignment.BottomStart))
     }
@@ -1611,16 +1591,6 @@ private fun MoodTile(mood: TopPickMood, onClick: (TopPickMood, String) -> Unit, 
             // it — for as long as the shelf was in view; the motion is Top
             // Picks' own, one card at a time.
             MoodArt(mood, mood.style(), Modifier.fillMaxSize(), square = true, still = true)
-            Icon(
-                painter = painterResource(Res.drawable.ic_logo),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 8.dp)
-                    .height(11.dp)
-                    .aspectRatio(730f / 484f),
-            )
         }
         Spacer(Modifier.height(10.dp))
         Text(

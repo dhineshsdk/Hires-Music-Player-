@@ -5,11 +5,9 @@ import com.music.bitchord.ui.components.contextClick
 import com.music.bitchord.ui.AppUi
 import com.music.bitchord.sharedui.resources.*
 import org.jetbrains.compose.resources.painterResource
-import com.music.bitchord.ui.festive.GoldenLogo
 import org.jetbrains.compose.resources.DrawableResource
 import androidx.compose.foundation.Image
 import org.jetbrains.compose.resources.stringResource
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -465,44 +463,18 @@ fun CompactTrackRow(
 private fun HomeTitle(
     title: String,
     modifier: Modifier = Modifier,
-    festiveLogo: Boolean = false,
-    onFestiveLogoClick: (() -> Unit)? = null,
+    @Suppress("UNUSED_PARAMETER") festiveLogo: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") onFestiveLogoClick: (() -> Unit)? = null,
 ) {
     val style = MaterialTheme.typography.displayLarge
-    val logoHeight = with(LocalDensity.current) { (style.fontSize * LOGO_TO_FONT).toDp() }
     Column(modifier = modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp)) {
-        val logoModifier = Modifier
-            .padding(bottom = 14.dp)
-            .height(logoHeight)
-            .aspectRatio(LOGO_ASPECT)
-        if (festiveLogo) {
-            GoldenLogo(
-                painter = painterResource(Res.drawable.ic_logo),
-                modifier = logoModifier,
-                onClick = onFestiveLogoClick,
-            )
-        } else {
-            Icon(
-                painter = painterResource(Res.drawable.ic_logo),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = logoModifier,
-            )
-        }
-        // "Listen now" is hidden for now; the wordmark above stays.
-        // Text(
-        //     text = title,
-        //     style = style,
-        //     color = MaterialTheme.colorScheme.onBackground,
-        // )
+        Text(
+            text = title,
+            style = style,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
     }
 }
-
-/** The wordmark's height against the heading's font size. */
-private const val LOGO_TO_FONT = 0.9f
-
-/** ic_logo's viewport, 730 x 484. */
-private const val LOGO_ASPECT = 730f / 484f
 
 /**
  * Shared by the home feed, Explore and Library so headings line up across tabs.

@@ -239,6 +239,19 @@
                     android:host="party" />
             </intent-filter>
 
+            <!-- Spotify OAuth / App Remote callback & Aurex custom scheme invites -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="aurex"
+                    android:host="spotify-callback" />
+                <data
+                    android:scheme="aurex"
+                    android:host="party" />
+            </intent-filter>
+
             <!--
               Share → BitChord, from YT Music's own share sheet or from
               anywhere a link can be sent. The text is whatever the sending app

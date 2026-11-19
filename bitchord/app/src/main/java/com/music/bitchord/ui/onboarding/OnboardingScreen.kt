@@ -72,7 +72,6 @@ import androidx.compose.ui.unit.sp
 import com.music.bitchord.R
 import com.music.bitchord.sharedui.resources.Res
 import com.music.bitchord.sharedui.resources.ic_google_g
-import com.music.bitchord.sharedui.resources.ic_logo
 import org.jetbrains.compose.resources.painterResource
 import com.music.bitchord.ui.icons.BitChordIcons
 import com.music.bitchord.ui.player.MeshGradientBackground
@@ -219,11 +218,6 @@ private fun ColumnScope.NamePage(
     ) {
         Column {
             Spacer(Modifier.height(56.dp))
-            Image(
-                painter = painterResource(Res.drawable.ic_logo),
-                contentDescription = null,
-                modifier = Modifier.size(width = 46.dp, height = 30.dp),
-            )
         }
     }
     Spacer(Modifier.height(24.dp))

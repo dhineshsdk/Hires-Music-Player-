@@ -64,6 +64,21 @@ val addonAuthServer: String = (
         ?: System.getenv("ADDON_AUTH_SERVER")
         ?: "https://bitchord-auth.kushagrasingh.in"
     ).trim().trimEnd('/')
+val spotifyClientId: String = (
+    localProps.getProperty("SPOTIFY_CLIENT_ID")
+        ?: System.getenv("SPOTIFY_CLIENT_ID")
+        ?: ""
+    ).trim()
+val spotifyRedirectUri: String = (
+    localProps.getProperty("SPOTIFY_REDIRECT_URI")
+        ?: System.getenv("SPOTIFY_REDIRECT_URI")
+        ?: "aurex://spotify-callback"
+    ).trim()
+val appleDeveloperToken: String = (
+    localProps.getProperty("APPLE_DEVELOPER_TOKEN")
+        ?: System.getenv("APPLE_DEVELOPER_TOKEN")
+        ?: ""
+    ).trim()
 
 // See the root build.gradle.kts: one version for the phone and its watch app.
 val betaSuffix = rootProject.extra["bitchordBetaSuffix"] as String
@@ -74,7 +89,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.music.bitchord"
+        applicationId = "com.aurex.music"
         // 26 keeps reach wide; real-time blur (RenderEffect) kicks in on API 31+,
         // Haze falls back to a translucent scrim below that.
         minSdk = 26
@@ -96,6 +111,21 @@ android {
             "String",
             "ADDON_AUTH_URL",
             "\"${addonAuthServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
+        buildConfigField(
+            "String",
+            "SPOTIFY_CLIENT_ID",
+            "\"${spotifyClientId.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
+        buildConfigField(
+            "String",
+            "SPOTIFY_REDIRECT_URI",
+            "\"${spotifyRedirectUri.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
+        buildConfigField(
+            "String",
+            "APPLE_DEVELOPER_TOKEN",
+            "\"${appleDeveloperToken.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
         )
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
@@ -132,12 +162,12 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
-            applicationId = "com.dev.bitchord"
-            resValue("string", "app_name", "BitChord Dev")
+            applicationId = "com.aurex.music.dev"
+            resValue("string", "app_name", "Aurex")
         }
         create("prod") {
             dimension = "env"
-            // Matches defaultConfig — this is the package already shipped/installed.
+            resValue("string", "app_name", "Aurex")
         }
     }
 
@@ -446,6 +476,10 @@ dependencies {
     implementation("org.conscrypt:conscrypt-android:2.5.3")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
 
+    // ---- Official Spotify Android App Remote SDK (controls installed com.spotify.music app) ----
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    implementation("com.google.code.gson:gson:2.11.0")
+
     testImplementation("junit:junit:4.13.2")
     // A real HTTP server for the addon tests. The addon protocol is entirely
     // "what does this app send, and what does it do with what comes back", and
@@ -481,10 +515,10 @@ val verifyDevInstall = tasks.register("verifyDevInstall") {
             .drop(1)
             .mapNotNull { line -> line.split('\t').takeIf { it.size == 2 && it[1] == "device" }?.get(0) }
         serials.forEach { serial ->
-            logger.lifecycle("verifyDevInstall: compiling com.dev.bitchord on $serial")
+            logger.lifecycle("verifyDevInstall: compiling com.aurex.music.dev on $serial")
             ProcessBuilder(
                 adbPath, "-s", serial, "shell", "cmd", "package", "compile",
-                "-m", "verify", "-f", "com.dev.bitchord",
+                "-m", "verify", "-f", "com.aurex.music.dev",
             ).inheritIO().start().waitFor()
         }
     }
