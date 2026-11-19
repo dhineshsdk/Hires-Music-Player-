@@ -35,7 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -461,7 +461,7 @@ fun ServerEditorHost(
     onSave: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val states = remember { fields.map { mutableStateOf(it.initial) } }
     var status by remember { mutableStateOf<String?>(null) }
@@ -491,13 +491,13 @@ fun ServerEditorHost(
             scope.launch {
                 onTest(values).fold(
                     onSuccess = {
-                        status = context.getString(R.string.connected)
+                        status = resources.getString(R.string.connected)
                         statusIsGood = true
                     },
                     onFailure = {
-                        status = context.getString(
+                        status = resources.getString(
                             testFailedRes,
-                            it.message ?: context.getString(R.string.failed),
+                            it.message ?: resources.getString(R.string.failed),
                         )
                         statusIsGood = false
                     },

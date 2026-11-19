@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,8 +26,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.playback.AudioOutputStatus
 import com.music.bitchord.playback.AudioRouting
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
 /**
  * The outputs this phone can play music through, kept current while on screen.
@@ -73,9 +72,8 @@ internal fun rememberAndroidAudioOutputs(): List<AudioOutputDevice> {
     val selectedId by AudioRouting.selectedId.collectAsStateWithLifecycle()
     var outputs by remember(manager) { mutableStateOf(AudioRouting.outputs(manager)) }
 
-    val pipelineActiveId by remember {
-        AudioOutputStatus.current.map { it.activeDeviceId }.distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = AudioOutputStatus.current.value.activeDeviceId)
+    val outputStatus = AudioOutputStatus.current.collectAsStateWithLifecycle()
+    val pipelineActiveId by remember { derivedStateOf { outputStatus.value.activeDeviceId } }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(manager, selectedId, lifecycle) {

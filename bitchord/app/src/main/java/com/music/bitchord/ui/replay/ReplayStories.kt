@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -551,6 +552,7 @@ private fun ColumnScope.Intro(summary: ReplaySummary, headline: List<HeadlineRun
 @Composable
 private fun ColumnScope.Minutes(summary: ReplaySummary, headline: List<HeadlineRun>) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     Headline(headline)
     Spacer(Modifier.weight(1f))
     ArtworkCollage(summary)
@@ -562,16 +564,16 @@ private fun ColumnScope.Minutes(summary: ReplaySummary, headline: List<HeadlineR
         // only figure worth restating.
         text = buildString {
             if (summary.hours >= 1) {
-                append(context.getString(R.string.replay_hours_across, grouped(summary.hours)))
+                append(resources.getString(R.string.replay_hours_across, grouped(summary.hours)))
             } else {
-                append(context.getString(R.string.replay_across))
+                append(resources.getString(R.string.replay_across))
                 append(" ")
             }
             // Add a comma+space separator between the hours and the track count
             if (summary.hours >= 1) {
                 append(", ")
             }
-            append(context.resources.getQuantityString(
+            append(resources.getQuantityString(
                 R.plurals.replay_play_count,
                 summary.totalPlays,
                 grouped(summary.totalPlays.toLong()),

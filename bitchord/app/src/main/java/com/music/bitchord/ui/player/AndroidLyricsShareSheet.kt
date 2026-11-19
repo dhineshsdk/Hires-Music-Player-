@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,6 +69,7 @@ internal fun AndroidLyricsShareSheet(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
 
@@ -205,7 +207,7 @@ internal fun AndroidLyricsShareSheet(
                                     context.startActivity(
                                         Intent.createChooser(
                                             sendIntent(uri),
-                                            context.getString(R.string.share_your_lyrics),
+                                            resources.getString(R.string.share_your_lyrics),
                                         ),
                                     )
                                 }

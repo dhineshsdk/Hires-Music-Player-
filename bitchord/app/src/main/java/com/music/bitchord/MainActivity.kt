@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -531,6 +532,7 @@ private fun BitChordApp(
     viewModel: MainViewModel = viewModel(),
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val clipboard = LocalClipboardManager.current
     val hazeState = remember { HazeState() }
     // Recording the backdrop layer costs a draw pass, so it only runs when a
@@ -1169,8 +1171,6 @@ private fun BitChordApp(
         }
     }
     val shuffleEnabled by QueueShuffle.enabled.collectAsStateWithLifecycle()
-    // For the version switch's "there is no other version" notice.
-    val versionContext = LocalContext.current
     // Tracks whose other cut a switch looked for and didn't find: their menu
     // row reads "not found" from then on instead of offering it again.
     val missingVersions = remember { mutableStateListOf<String>() }
@@ -1365,7 +1365,7 @@ private fun BitChordApp(
             val summary = com.music.bitchord.data.webdav.WebDavUploads.upload(context, songs)
             if (summary.total > 0) {
                 showQueueNotice(
-                    context.getString(
+                    resources.getString(
                         R.string.webdav_upload_summary,
                         summary.uploaded,
                         summary.skipped,
@@ -1416,7 +1416,7 @@ private fun BitChordApp(
                 TrackLog.w("Player", "audio switch found no distinct official song", song.videoId)
                 // The switch is always offered now, so say when there was nothing to switch to.
                 if (song.videoId !in missingVersions) missingVersions += song.videoId
-                if (stillCurrent) showQueueNotice(versionContext.getString(R.string.no_audio_version))
+                if (stillCurrent) showQueueNotice(resources.getString(R.string.no_audio_version))
                 if (stillCurrent && resumeAfterResolution) c.play()
                 return
             }
@@ -1487,7 +1487,7 @@ private fun BitChordApp(
             if (video == null || video.videoId == song.videoId) {
                 TrackLog.w("Player", "video switch found no distinct video", song.videoId)
                 if (song.videoId !in missingVersions) missingVersions += song.videoId
-                if (stillCurrent) showQueueNotice(versionContext.getString(R.string.no_video_version))
+                if (stillCurrent) showQueueNotice(resources.getString(R.string.no_video_version))
                 if (stillCurrent && resumeAfterResolution) c.play()
                 return
             }
@@ -1728,7 +1728,7 @@ private fun BitChordApp(
                 activeController.commitRadioQueue()
                 Toast.makeText(
                     context,
-                    context.getString(R.string.radio_started, song.title),
+                    resources.getString(R.string.radio_started, song.title),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -1799,7 +1799,7 @@ private fun BitChordApp(
                 if (ListenTogether.state.value.inParty) {
                     val upcoming = (it.mediaItemCount - (it.currentMediaItemIndex + 1)).coerceAtLeast(0)
                     if (upcoming >= 25) {
-                        showQueueNotice(context.getString(R.string.party_queue_full, 25))
+                        showQueueNotice(resources.getString(R.string.party_queue_full, 25))
                         return@launch
                     }
                 }
@@ -1818,7 +1818,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
-                showQueueNotice(context.getString(R.string.song_added_to_queue))
+                showQueueNotice(resources.getString(R.string.song_added_to_queue))
             }
         }
     }
@@ -1829,7 +1829,7 @@ private fun BitChordApp(
                 if (ListenTogether.state.value.inParty) {
                     val upcoming = (it.mediaItemCount - (it.currentMediaItemIndex + 1)).coerceAtLeast(0)
                     if (upcoming >= 25) {
-                        showQueueNotice(context.getString(R.string.party_queue_full, 25))
+                        showQueueNotice(resources.getString(R.string.party_queue_full, 25))
                         return@launch
                     }
                 }
@@ -1848,7 +1848,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
-                showQueueNotice(context.getString(R.string.song_will_play_next))
+                showQueueNotice(resources.getString(R.string.song_will_play_next))
             }
         }
     }
@@ -1881,7 +1881,7 @@ private fun BitChordApp(
         artwork: String? = null,
     ) {
         if (browseId != null) {
-            val credit = subtitle ?: context.getString(
+            val credit = subtitle ?: resources.getString(
                 if (type == BrowseType.ARTIST) R.string.artist else R.string.album,
             )
             viewModel.openDetail(browseId, name, credit, artwork, type)
@@ -1901,7 +1901,7 @@ private fun BitChordApp(
             if (hit == null) {
                 Toast.makeText(
                     context,
-                    context.getString(R.string.couldnt_find, name),
+                    resources.getString(R.string.couldnt_find, name),
                     Toast.LENGTH_SHORT,
                 ).show()
             } else {
@@ -1945,7 +1945,7 @@ private fun BitChordApp(
                         val upcoming = (c.mediaItemCount - (c.currentMediaItemIndex + 1)).coerceAtLeast(0)
                         val slotsLeft = (25 - upcoming).coerceAtLeast(0)
                         if (slotsLeft <= 0) {
-                            showQueueNotice(context.getString(R.string.party_queue_full, 25))
+                            showQueueNotice(resources.getString(R.string.party_queue_full, 25))
                             return@launch
                         }
                         songs.take(slotsLeft)
@@ -1972,7 +1972,7 @@ private fun BitChordApp(
                             ).asQueueEntry(QueueTier.USER_QUEUE).toMediaItem()
                         },
                     )
-                    val message = context.resources.getQuantityString(
+                    val message = resources.getQuantityString(
                         if (next) R.plurals.songs_will_play_next else R.plurals.songs_added_to_queue,
                         toAdd.size,
                         toAdd.size,
@@ -2009,7 +2009,7 @@ private fun BitChordApp(
                 if (song == null) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.couldnt_open_link),
+                        resources.getString(R.string.couldnt_open_link),
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
@@ -2165,12 +2165,12 @@ private fun BitChordApp(
         when {
             target.songs.isNotEmpty() -> stamp(target.songs)
             target.browseId == null ->
-                Toast.makeText(context, context.getString(R.string.no_tracks_here), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, resources.getString(R.string.no_tracks_here), Toast.LENGTH_SHORT).show()
             else -> viewModel.collectSongs(target.browseId, target.thumbnailUrl) { result ->
                 result.fold(
                     onSuccess = stamp,
                     onFailure = {
-                        val message = it.message ?: context.getString(R.string.couldnt_load_tracks)
+                        val message = it.message ?: resources.getString(R.string.couldnt_load_tracks)
                         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     },
                 )
@@ -2211,7 +2211,7 @@ private fun BitChordApp(
             // The one case where refusing is fatal: below API 29 there is no
             // other way to reach the Music folder.
             else -> Toast
-                .makeText(context, context.getString(R.string.storage_required_save), Toast.LENGTH_SHORT)
+                .makeText(context, resources.getString(R.string.storage_required_save), Toast.LENGTH_SHORT)
                 .show()
         }
     }
@@ -2223,7 +2223,7 @@ private fun BitChordApp(
             viewModel.reloadLocalDetail("local:downloads")
             viewModel.loadLibrarySongs()
         } else {
-            Toast.makeText(context, context.getString(R.string.storage_required_read), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, resources.getString(R.string.storage_required_read), Toast.LENGTH_SHORT).show()
         }
     }
     val mediaPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -2374,14 +2374,14 @@ private fun BitChordApp(
             // long message. So this one is said whatever the count.
             blocked -> Toast.makeText(
                 context,
-                context.getString(R.string.wifi_only_download_refusal),
+                resources.getString(R.string.wifi_only_download_refusal),
                 Toast.LENGTH_LONG,
             ).show()
             requested.size > 1 -> {
                 val message = if (songs.isEmpty()) {
-                    context.getString(R.string.already_downloaded)
+                    resources.getString(R.string.already_downloaded)
                 } else {
-                    context.resources.getQuantityString(
+                    resources.getQuantityString(
                         R.plurals.downloading_song_count,
                         songs.size,
                         songs.size,
@@ -2689,7 +2689,7 @@ private fun BitChordApp(
                     viewModel.openDetail(
                         id,
                         name,
-                        context.getString(R.string.artist),
+                        resources.getString(R.string.artist),
                         null,
                         BrowseType.ARTIST,
                     )
@@ -2700,14 +2700,14 @@ private fun BitChordApp(
                             viewModel.openDetail(
                                 found,
                                 name,
-                                context.getString(R.string.artist),
+                                resources.getString(R.string.artist),
                                 null,
                                 BrowseType.ARTIST,
                             )
                         } else {
                             Toast.makeText(
                                 context,
-                                context.getString(R.string.couldnt_find, name),
+                                resources.getString(R.string.couldnt_find, name),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -3022,7 +3022,7 @@ private fun BitChordApp(
                                     viewModel.openDetail(
                                         browseId = SPOTIFY_PAGE_PREFIX + playlist.id,
                                         title = playlist.name,
-                                        subtitle = playlist.owner ?: context.getString(R.string.spotify),
+                                        subtitle = playlist.owner ?: resources.getString(R.string.spotify),
                                         thumbnailUrl = playlist.imageUrl,
                                         type = BrowseType.PLAYLIST,
                                     )
@@ -3364,7 +3364,7 @@ private fun BitChordApp(
                                                 viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
                                                     reorderSaving = false
                                                     showQueueNotice(
-                                                        context.getString(
+                                                        resources.getString(
                                                             if (saved) R.string.playlist_reordered else R.string.reorder_failed,
                                                         ),
                                                     )
@@ -3651,13 +3651,13 @@ private fun BitChordApp(
                                         index,
                                         if (searchSource == SearchSource.ADDONS) {
                                             QueueSource(
-                                                context.getString(R.string.search_source_addons),
+                                                resources.getString(R.string.search_source_addons),
                                                 PlaybackSourceType.BROWSE,
                                                 "addons:search",
                                             )
                                         } else {
                                             QueueSource(
-                                                context.getString(R.string.local_music),
+                                                resources.getString(R.string.local_music),
                                                 PlaybackSourceType.BROWSE,
                                                 "local:all",
                                             )
@@ -4356,7 +4356,7 @@ private fun BitChordApp(
                     // A party plays one cut for everyone in it — see
                     // [PlaybackService.smoothSwapCurrentTrackVersion].
                     if (partyState.inParty) {
-                        showQueueNotice(versionContext.getString(R.string.version_switch_in_party))
+                        showQueueNotice(resources.getString(R.string.version_switch_in_party))
                         return@toggle
                     }
                     if (switchingAudioVersion) return@toggle
@@ -4541,7 +4541,7 @@ private fun BitChordApp(
                     )
                 },
                 onOpenArtist = { id ->
-                    openPage(id, song.artist, context.getString(R.string.artist), BrowseType.ARTIST)
+                    openPage(id, song.artist, resources.getString(R.string.artist), BrowseType.ARTIST)
                 },
                 // The player backfills its own track; any other row is
                 // looked up as the menu opens — see `needsLinks` above.
@@ -4623,7 +4623,7 @@ private fun BitChordApp(
                             // outcome worth seeing rather than a silent one.
                             Toast.makeText(
                                 context,
-                                context.resources.getQuantityString(
+                                resources.getQuantityString(
                                     R.plurals.log_copied_line_count,
                                     text.lineSequence().count(),
                                     text.lineSequence().count(),
@@ -4933,13 +4933,13 @@ private fun BitChordApp(
                             // all there already, else that it didn't work.
                             showQueueNotice(
                                 when {
-                                    added > 1 -> context.resources.getQuantityString(
+                                    added > 1 -> resources.getQuantityString(
                                         R.plurals.added_to_playlists_notice, added, added,
                                     )
-                                    added == 1 -> context.getString(R.string.song_added_to_playlist)
+                                    added == 1 -> resources.getString(R.string.song_added_to_playlist)
                                     alreadyThere > 0 && failed == 0 ->
-                                        context.getString(R.string.song_already_in_playlist)
-                                    else -> context.getString(R.string.failed)
+                                        resources.getString(R.string.song_already_in_playlist)
+                                    else -> resources.getString(R.string.failed)
                                 },
                             )
                         }
@@ -4961,12 +4961,12 @@ private fun BitChordApp(
                 offlinePlaylistTarget = null
                 creatingOfflinePlaylist = false
             }
-            val choices = remember(offlinePlaylists) {
+            val choices = remember(offlinePlaylists, resources) {
                 offlinePlaylists.map { playlist ->
                     UserPlaylist(
                         playlistId = playlist.id,
                         title = playlist.title,
-                        subtitle = context.resources.getQuantityString(
+                        subtitle = resources.getQuantityString(
                             R.plurals.song_count_plural,
                             playlist.songs.size,
                             playlist.songs.size,
@@ -4988,19 +4988,19 @@ private fun BitChordApp(
                         val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, listOf(song))
                         showQueueNotice(
                             when {
-                                result.added > 1 -> context.resources.getQuantityString(
+                                result.added > 1 -> resources.getQuantityString(
                                     R.plurals.added_to_playlists_notice, result.added, result.added,
                                 )
-                                result.added == 1 -> context.getString(R.string.song_added_to_playlist)
-                                result.alreadyThere > 0 -> context.getString(R.string.song_already_in_playlist)
-                                else -> context.getString(R.string.failed)
+                                result.added == 1 -> resources.getString(R.string.song_added_to_playlist)
+                                result.alreadyThere > 0 -> resources.getString(R.string.song_already_in_playlist)
+                                else -> resources.getString(R.string.failed)
                             },
                         )
                     }
                 },
                 onCreate = { title, _ ->
                     OfflinePlaylists.create(title, listOfNotNull(target))
-                    if (target != null) showQueueNotice(context.getString(R.string.song_added_to_playlist))
+                    if (target != null) showQueueNotice(resources.getString(R.string.song_added_to_playlist))
                 },
             )
         }
@@ -5018,7 +5018,7 @@ private fun BitChordApp(
                         songs,
                     ) { browseId, pTitle, savedLocally ->
                         showQueueNotice(
-                            context.getString(
+                            resources.getString(
                                 if (savedLocally && signedIn) R.string.spotify_import_local_fallback
                                 else R.string.spotify_import_done,
                                 pTitle,
@@ -5177,7 +5177,7 @@ private fun BitChordApp(
                         if (!nowPinned && id !in pinnedPlaylists) {
                             Toast.makeText(
                                 context,
-                                context.getString(
+                                resources.getString(
                                     R.string.pinned_playlist_limit,
                                     AppSettings.MAX_PINNED_PLAYLISTS,
                                 ),
@@ -5221,7 +5221,7 @@ private fun BitChordApp(
                             if (reorderTarget != p) return@loadPlaylistEntries
                             reorderEntries = result.fold(
                                 onSuccess = { UiState.Success(it) },
-                                onFailure = { UiState.Error(context.getString(R.string.failed)) },
+                                onFailure = { UiState.Error(resources.getString(R.string.failed)) },
                             )
                         }
                     }
@@ -5606,10 +5606,10 @@ private fun BitChordApp(
                                     showLastfmLogin = false
                                 }
                                 .onFailure { e ->
-                                    lastfmError = e.message ?: context.getString(R.string.login_failed)
+                                    lastfmError = e.message ?: resources.getString(R.string.login_failed)
                                 }
                         } catch (e: Exception) {
-                            lastfmError = e.message ?: context.getString(R.string.login_failed)
+                            lastfmError = e.message ?: resources.getString(R.string.login_failed)
                         } finally {
                             lastfmLoading = false
                         }
@@ -5621,22 +5621,24 @@ private fun BitChordApp(
 
         if (showWebDavEditor) {
             BackHandler { showWebDavEditor = false }
+            val initialWebDavUsername by AppSettings.webdavUsername.collectAsStateWithLifecycle()
+            val initialWebDavPassword by AppSettings.webdavPassword.collectAsStateWithLifecycle()
             ServerEditorHost(
                 hazeState = hazeState,
                 title = stringResource(R.string.webdav),
                 description = stringResource(R.string.webdav_description),
                 fields = listOf(
                     FieldConfig(
-                        initial = AppSettings.webdavUrl.value,
+                        initial = webdavUrl,
                         placeholder = stringResource(R.string.webdav_server_url_hint),
                         keyboardType = KeyboardType.Uri,
                     ),
                     FieldConfig(
-                        initial = AppSettings.webdavUsername.value,
+                        initial = initialWebDavUsername,
                         placeholder = stringResource(R.string.username),
                     ),
                     FieldConfig(
-                        initial = AppSettings.webdavPassword.value,
+                        initial = initialWebDavPassword,
                         placeholder = stringResource(R.string.password),
                         keyboardType = KeyboardType.Password,
                         isPassword = true,
@@ -5663,30 +5665,34 @@ private fun BitChordApp(
 
         if (showSmbEditor) {
             BackHandler { showSmbEditor = false }
+            val initialSmbShare by AppSettings.smbShare.collectAsStateWithLifecycle()
+            val initialSmbBasePath by AppSettings.smbBasePath.collectAsStateWithLifecycle()
+            val initialSmbUsername by AppSettings.smbUsername.collectAsStateWithLifecycle()
+            val initialSmbPassword by AppSettings.smbPassword.collectAsStateWithLifecycle()
             ServerEditorHost(
                 hazeState = hazeState,
                 title = stringResource(R.string.smb),
                 description = stringResource(R.string.smb_description),
                 fields = listOf(
                     FieldConfig(
-                        initial = AppSettings.smbHost.value,
+                        initial = smbHost,
                         placeholder = stringResource(R.string.smb_server_hint),
                         keyboardType = KeyboardType.Uri,
                     ),
                     FieldConfig(
-                        initial = AppSettings.smbShare.value,
+                        initial = initialSmbShare,
                         placeholder = stringResource(R.string.smb_share_hint),
                     ),
                     FieldConfig(
-                        initial = AppSettings.smbBasePath.value,
+                        initial = initialSmbBasePath,
                         placeholder = stringResource(R.string.smb_folder_hint),
                     ),
                     FieldConfig(
-                        initial = AppSettings.smbUsername.value,
+                        initial = initialSmbUsername,
                         placeholder = stringResource(R.string.username),
                     ),
                     FieldConfig(
-                        initial = AppSettings.smbPassword.value,
+                        initial = initialSmbPassword,
                         placeholder = stringResource(R.string.password),
                         keyboardType = KeyboardType.Password,
                         isPassword = true,

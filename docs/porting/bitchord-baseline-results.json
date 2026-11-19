@@ -247,5 +247,51 @@
       ],
       "end_state": "paused"
     }
+  },
+  "stabilization_2026_11_19": {
+    "apk_assemble": "passed",
+    "arm64_apk": {
+      "bytes": 142528226,
+      "sha256": "794f4784548ffc00a939d8a0f90f9685b4c7f8637bbf1660033373c0000e5c38",
+      "package": "com.dev.bitchord",
+      "output": "bitchord/app/build/outputs/apk/dev/debug/app-dev-arm64-v8a-debug.apk"
+    },
+    "tests": {
+      "app": {
+        "tests": 1259,
+        "failures": 0,
+        "skipped": 1
+      },
+      "shared_jvm": {
+        "tests": 122,
+        "failures": 0
+      }
+    },
+    "lint": {
+      "errors": 0,
+      "warnings": 702,
+      "hints": 5,
+      "tool": "lint 32.5.1 via android.experimental.lint.version=9.5.1",
+      "resolved_from_previous": [
+        "MissingQuantity x28 (values-he two, values-pl few/many)",
+        "StateFlowValueCalledInComposition x13 (AddonBlockedAlert, AudioOutput, DiscordScreen, MainActivity)",
+        "LocalContextGetResourceValueCall x73 and LocalContextResourcesRead x7 (LocalResources.current / stringResource across 11 UI files)"
+      ]
+    },
+    "device_smoke": {
+      "serial": "adb-RZCY2069HBL-Is7j9k._adb-tls-connect._tcp (SM-S926B, Android 16)",
+      "passed": [
+        "install -r --user 0 over existing com.dev.bitchord install",
+        "ART verify (cmd package compile -m verify -f com.dev.bitchord)",
+        "cold launch MainActivity (TotalTime 2427 ms, WaitTime 2429 ms)",
+        "Home and Full Player UI rendering (Treat You Better / Attention in BitChordPlayback media session)",
+        "zero FATAL EXCEPTION, ANR, or VerifyError in logcat"
+      ],
+      "not_verified": [
+        "synchronized (timed) lyrics (device screen auto-locked before Lyrics panel tap)",
+        "USB or bit-perfect fidelity (internal speaker active; no USB DAC attached)",
+        "provider accounts"
+      ]
+    }
   }
 }

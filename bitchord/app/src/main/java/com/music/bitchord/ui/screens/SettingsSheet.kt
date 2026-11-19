@@ -5,8 +5,9 @@ package com.music.bitchord.ui.screens
 import com.music.bitchord.ui.icons.SfIcons
 import com.music.bitchord.wear.WatchInstaller
 import android.content.Context
-import androidx.annotation.StringRes
 import android.content.Intent
+import android.content.res.Resources
+import androidx.annotation.StringRes
 import android.media.AudioFormat
 import android.media.audiofx.AudioEffect
 import android.net.Uri
@@ -126,6 +127,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -227,6 +229,7 @@ fun SettingsScreen(
     onOpenChoice: (SettingsChoiceKind) -> Unit = {},
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
 
     val wifiQuality by AppSettings.audioQualityWifi.collectAsStateWithLifecycle()
     val cellularQuality by AppSettings.audioQualityCellular.collectAsStateWithLifecycle()
@@ -382,10 +385,10 @@ fun SettingsScreen(
         backupScope.launch {
             exportStatus = Backup.exportTo(context, target).fold(
                 onSuccess = { months ->
-                    context.getString(R.string.export_succeeded, context.countOfMonths(months))
+                    resources.getString(R.string.export_succeeded, resources.countOfMonths(months))
                 },
                 onFailure = {
-                    context.getString(R.string.export_failed, it.message ?: context.getString(R.string.unknown_error))
+                    resources.getString(R.string.export_failed, it.message ?: resources.getString(R.string.unknown_error))
                 },
             )
         }
@@ -397,10 +400,10 @@ fun SettingsScreen(
         backupScope.launch {
             importStatus = Backup.importFrom(context, source).fold(
                 onSuccess = {
-                    context.getString(R.string.import_succeeded, context.countOfMonths(it.months), it.from)
+                    resources.getString(R.string.import_succeeded, resources.countOfMonths(it.months), it.from)
                 },
                 onFailure = {
-                    context.getString(R.string.import_failed, it.message ?: context.getString(R.string.unknown_error))
+                    resources.getString(R.string.import_failed, it.message ?: resources.getString(R.string.unknown_error))
                 },
             )
         }
@@ -1481,7 +1484,7 @@ fun SettingsScreen(
                         val loader = SingletonImageLoader.get(context)
                         loader.memoryCache?.clear()
                         loader.diskCache?.clear()
-                        Toast.makeText(context, context.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, resources.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
                     },
                 )
             }
@@ -1836,7 +1839,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     confirmClearSongCache = false
                     AudioCache.clear {
-                        Toast.makeText(context, context.getString(R.string.song_cache_cleared), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, resources.getString(R.string.song_cache_cleared), Toast.LENGTH_SHORT).show()
                     }
                 }) {
                     Text(stringResource(R.string.clear))
@@ -2013,10 +2016,10 @@ fun SettingsScreen(
                                         showLastfmLoginDialog = false
                                     }
                                     .onFailure { e ->
-                                        lastfmError = e.message ?: context.getString(R.string.login_failed)
+                                        lastfmError = e.message ?: resources.getString(R.string.login_failed)
                                     }
                             } catch (e: Exception) {
-                                lastfmError = e.message ?: context.getString(R.string.login_failed)
+                                lastfmError = e.message ?: resources.getString(R.string.login_failed)
                             } finally {
                                 lastfmLoading = false
                             }
@@ -2038,10 +2041,10 @@ fun SettingsScreen(
 }
 
 /** "3 months of listening" — the unit a backup is actually measured in. */
-private fun Context.countOfMonths(months: Int): String = if (months == 0) {
+private fun Resources.countOfMonths(months: Int): String = if (months == 0) {
     getString(R.string.no_listening_history)
 } else {
-    resources.getQuantityString(R.plurals.listening_month_count, months, months)
+    getQuantityString(R.plurals.listening_month_count, months, months)
 }
 
 @Composable
