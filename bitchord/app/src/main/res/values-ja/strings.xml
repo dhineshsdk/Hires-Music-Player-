@@ -1439,4 +1439,5 @@
     <string name="diwali_title">Aurexからハッピーディワリをお届けします</string>
     <string name="diwali_subtitle">この光の祭典が、あなたの家に喜びを、日々に音楽をもたらしますように。</string>
     <string name="diwali_cta">一緒にお祝いしましょう</string>
+    <string name="standby_dock_mode">スタンバイドック</string>
 </resources>

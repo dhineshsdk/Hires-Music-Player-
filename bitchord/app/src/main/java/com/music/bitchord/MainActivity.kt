@@ -168,6 +168,8 @@ import com.music.bitchord.ui.components.DacVolumeKeys
 import com.music.bitchord.ui.components.LocalPlayingBarsMotion
 import com.music.bitchord.ui.components.handleDacVolumeKey
 import com.music.bitchord.ui.components.VolumeHud
+import com.music.bitchord.ui.components.rememberRemoteArtworkUrl
+import com.music.bitchord.ui.standby.StandbyDockDialog
 import com.music.bitchord.ui.navigation.AppDestination
 import com.music.bitchord.ui.navigation.AppRoute
 import com.music.bitchord.ui.screens.EqualizerPresetPage
@@ -682,6 +684,7 @@ private fun BitChordApp(
     var discordDialog by remember { mutableStateOf<DiscordDialog?>(null) }
     var songActions by remember { mutableStateOf<Song?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
+    var showStandbyDock by rememberSaveable { mutableStateOf(false) }
     /**
      * Whether the track menu that is up was opened from the player.
      *
@@ -4643,6 +4646,14 @@ private fun BitChordApp(
                 } else {
                     null
                 },
+                onOpenStandbyDock = if (fromPlayer) {
+                    {
+                        songActions = null
+                        showStandbyDock = true
+                    }
+                } else {
+                    null
+                },
                 // The popup lives in the player, so the menu only has to close
                 // and ask for it; it lays the next transition out on its own.
                 onAutomixOverview = if (fromPlayer && automixOn) {
@@ -4812,6 +4823,21 @@ private fun BitChordApp(
                     }
                 }
             }
+        }
+
+        if (showStandbyDock && playerSong != null) {
+            val dockArtworkUrl = rememberRemoteArtworkUrl(playerSong)
+            StandbyDockDialog(
+                song = playerSong,
+                artworkUrl = dockArtworkUrl,
+                isPlaying = player.isPlaying,
+                position = player.position,
+                durationMs = player.durationMs,
+                onPlayPause = { togglePlayPause() },
+                onNext = { controller?.seekToNextMediaItem() },
+                onPrevious = { controller?.seekToPrevious() },
+                onDismiss = { showStandbyDock = false },
+            )
         }
 
         // ---- Replay stories ----

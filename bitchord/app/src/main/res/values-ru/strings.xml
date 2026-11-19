@@ -1493,4 +1493,5 @@
     <string name="diwali_title">Aurex поздравляет вас с праздником Дивали</string>
     <string name="diwali_subtitle">Пусть этот фестиваль огней наполнит ваш дом радостью, а ваши дни — музыкой.</string>
     <string name="diwali_cta">Отпраздновать</string>
+    <string name="standby_dock_mode">Режим док-станции</string>
 </resources>

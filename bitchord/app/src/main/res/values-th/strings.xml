@@ -1444,4 +1444,5 @@
     <string name="diwali_title">Aurex ขอให้คุณมีความสุขในเทศกาลดิวาลี</string>
     <string name="diwali_subtitle">ขอให้เทศกาลแห่งแสงไฟนี้เติมเต็มบ้านของคุณด้วยความสุขและวันเวลาของคุณด้วยเสียงดนตรี</string>
     <string name="diwali_cta">ร่วมเฉลิมฉลอง</string>
+    <string name="standby_dock_mode">โหมด Standby Dock</string>
 </resources>

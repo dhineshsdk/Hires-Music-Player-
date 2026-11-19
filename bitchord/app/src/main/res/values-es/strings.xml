@@ -1433,4 +1433,5 @@
     <string name="diwali_title">Aurex te desea un feliz Diwali</string>
     <string name="diwali_subtitle">Que este festival de las luces llene tu hogar de alegría y tus días de música.</string>
     <string name="diwali_cta">Celebremos</string>
+    <string name="standby_dock_mode">Modo Dock</string>
 </resources>

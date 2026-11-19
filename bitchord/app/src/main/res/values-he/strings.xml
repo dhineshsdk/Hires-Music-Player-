@@ -1488,4 +1488,5 @@
     <string name="diwali_title">Aurex מאחל לך חג דיוואלי שמח</string>
     <string name="diwali_subtitle">יהי רצון שפסטיבל האורות ימלא את ביתך בשמחה ואת ימיך במוזיקה.</string>
     <string name="diwali_cta">בואו נחגוג</string>
+    <string name="standby_dock_mode">מצב עגינה</string>
 </resources>

@@ -1438,4 +1438,5 @@
     <string name="diwali_title">Aurex 祝您排燈節快樂</string>
     <string name="diwali_subtitle">願這排燈節的光芒為您的家帶來喜悅，讓音樂伴隨您的每一天。</string>
     <string name="diwali_cta">一起慶祝</string>
+    <string name="standby_dock_mode">待機底座模式</string>
 </resources>

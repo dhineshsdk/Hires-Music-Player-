@@ -171,6 +171,8 @@ fun SongActionsMenu(
     onCopyLog: (() -> Unit)? = null,
     /** Opens the timing control offered only by the main player's menu. */
     onLyricsOffset: (() -> Unit)? = null,
+    /** Opens fullscreen Standby Dock Mode for the active playback session. */
+    onOpenStandbyDock: (() -> Unit)? = null,
     /**
      * Opens the Automix mix popup on the next transition. Null hides the row —
      * the player passes one only while Automix is on.
@@ -377,8 +379,16 @@ fun SongActionsMenu(
 
         // The player's own: about the track playing right now rather than
         // about the song as a thing in a library.
-        if (showSleepTimer || onLyricsOffset != null || onAutomixOverview != null || onCopyLog != null) {
+        if (showSleepTimer || onOpenStandbyDock != null || onLyricsOffset != null || onAutomixOverview != null || onCopyLog != null) {
             if (startsGroup()) IosMenuSeparator()
+            onOpenStandbyDock?.let {
+                ActionRow(
+                    icon = SfIcons.Fullscreen,
+                    label = stringResource(R.string.standby_dock_mode),
+                    accent = palette.accent,
+                    onClick = it,
+                )
+            }
             if (showSleepTimer) {
                 ActionRow(
                     icon = SfIcons.SleepTimer,

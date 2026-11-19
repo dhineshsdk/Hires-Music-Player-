@@ -1378,4 +1378,5 @@
     <string name="diwali_title">Aurex chúc bạn một mùa lễ Diwali vui vẻ</string>
     <string name="diwali_subtitle">Nguyện chúc lễ hội ánh sáng này sẽ tràn ngập ngôi nhà bạn niềm vui và những ngày tháng đầy ắp âm nhạc.</string>
     <string name="diwali_cta">Cùng ăn mừng</string>
+    <string name="standby_dock_mode">Chế độ Dock</string>
 </resources>

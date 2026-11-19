@@ -1418,4 +1418,5 @@
     <string name="diwali_title">Aurex Mutlu bir Divali diler</string>
     <string name="diwali_subtitle">Bu ışık festivali evinize neşe, günlerinize müzik doldursun.</string>
     <string name="diwali_cta">Kutlayalım</string>
+    <string name="standby_dock_mode">Standby Dock</string>
 </resources>
