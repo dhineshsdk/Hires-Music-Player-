@@ -5,6 +5,7 @@ import android.util.Log
 import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.settings.AudioFormatPriority
 import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.playback.StreamContainer
@@ -868,15 +869,29 @@ object SourceResolver {
      * narrow enough to be codec-sensitive would be a margin that buys a seam
      * in the audio for nothing. 160 to 320 clears it; 128 to 192 does not.
      */
-    internal fun worthSwapping(candidate: StreamFormat, playing: StreamFormat?): Boolean {
-        // Never away from an immersive mix. A FLAC is a better *copy* and a
-        // worse *mix* once Atmos is what the listener chose, and cutting one in
-        // over the other mid-song is a downgrade dressed as an upgrade.
-        // [QualityUpgrade.needsLosslessFollowUp] already treats Atmos as final,
-        // so this is the belt to that braces — it also covers the late answer
-        // that arrives from a pass started before the Atmos stream landed.
-        if (playing?.isDolbyAtmos == true && !candidate.isDolbyAtmos) return false
-        if (candidate.isLossless == true || candidate.isDolbyAtmos) return true
+    internal fun worthSwapping(
+        candidate: StreamFormat,
+        playing: StreamFormat?,
+        priority: AudioFormatPriority = AppSettings.audioFormatPriority.value,
+    ): Boolean {
+        if (priority == AudioFormatPriority.DOLBY_ATMOS_FIRST) {
+            // Never away from an immersive mix. A FLAC is a better *copy* and a
+            // worse *mix* once Atmos is what the listener chose, and cutting one in
+            // over the other mid-song is a downgrade dressed as an upgrade.
+            // [QualityUpgrade.needsLosslessFollowUp] already treats Atmos as final,
+            // so this is the belt to that braces — it also covers the late answer
+            // that arrives from a pass started before the Atmos stream landed.
+            if (playing?.isDolbyAtmos == true && !candidate.isDolbyAtmos) return false
+            if (candidate.isLossless == true || candidate.isDolbyAtmos) return true
+            val gain = (candidate.kbps ?: return false) - (playing?.kbps ?: return false)
+            return gain >= UPGRADE_MIN_GAIN_KBPS
+        }
+
+        val candTier = formatTierScore(candidate, priority)
+        val playTier = playing?.let { formatTierScore(it, priority) } ?: 0
+        if (candTier < playTier) return false
+        if (candTier > playTier) return true
+        if (candTier > 0) return isBetter(candidate, playing, priority)
         val gain = (candidate.kbps ?: return false) - (playing?.kbps ?: return false)
         return gain >= UPGRADE_MIN_GAIN_KBPS
     }
@@ -1418,20 +1433,54 @@ object SourceResolver {
      * better; that one asks whether the difference is worth a break in the
      * audio, which is a much higher bar and only meaningful mid-playback.
      */
-    internal fun isBetter(candidate: StreamFormat, current: StreamFormat?): Boolean {
+    internal fun isHiResLossless(format: StreamFormat): Boolean =
+        format.isLossless == true && ((format.bitDepth ?: 0) > 16 || (format.sampleRateHz ?: 0) > 48_000)
+
+    private fun formatTierScore(format: StreamFormat, priority: AudioFormatPriority): Int =
+        when (priority) {
+            AudioFormatPriority.DOLBY_ATMOS_FIRST -> when {
+                format.isDolbyAtmos -> 3
+                format.isLossless == true -> 2
+                else -> 0
+            }
+            AudioFormatPriority.HIRES_FLAC_FIRST -> when {
+                isHiResLossless(format) -> 3
+                format.isLossless == true -> 2
+                format.isDolbyAtmos -> 1
+                else -> 0
+            }
+            AudioFormatPriority.LOSSLESS_STEREO_FIRST -> when {
+                format.isLossless == true && !isHiResLossless(format) -> 3
+                isHiResLossless(format) -> 2
+                format.isDolbyAtmos -> 1
+                else -> 0
+            }
+        }
+
+    internal fun isBetter(
+        candidate: StreamFormat,
+        current: StreamFormat?,
+        priority: AudioFormatPriority = AppSettings.audioFormatPriority.value,
+    ): Boolean {
         if (current == null) return true
-        // Immersive first, and ahead of lossless rather than behind it. This
-        // used to sit *after* the lossless test, which made it unreachable in
-        // the only comparison it exists for: an Atmos stream is E-AC-3 and so
-        // answers `isLossless == false`, so a FLAC won on the line above and
-        // the Atmos line below never ran. A track offered as both then played
-        // as the FLAC no matter what the Atmos setting said — and worse, a
-        // mid-playback upgrade would cut the FLAC in over an Atmos stream
-        // already playing. Anything immersive that reaches here has already
-        // cleared [ModuleSource.unplayable], so it is a mix this device and
-        // this listener both want.
-        if (candidate.isDolbyAtmos != current.isDolbyAtmos) return candidate.isDolbyAtmos
-        if (candidate.isLossless != current.isLossless) return candidate.isLossless == true
+        if (priority == AudioFormatPriority.DOLBY_ATMOS_FIRST) {
+            // Immersive first, and ahead of lossless rather than behind it. This
+            // used to sit *after* the lossless test, which made it unreachable in
+            // the only comparison it exists for: an Atmos stream is E-AC-3 and so
+            // answers `isLossless == false`, so a FLAC won on the line above and
+            // the Atmos line below never ran. A track offered as both then played
+            // as the FLAC no matter what the Atmos setting said — and worse, a
+            // mid-playback upgrade would cut the FLAC in over an Atmos stream
+            // already playing. Anything immersive that reaches here has already
+            // cleared [ModuleSource.unplayable], so it is a mix this device and
+            // this listener both want.
+            if (candidate.isDolbyAtmos != current.isDolbyAtmos) return candidate.isDolbyAtmos
+            if (candidate.isLossless != current.isLossless) return candidate.isLossless == true
+        } else {
+            val candScore = formatTierScore(candidate, priority)
+            val currScore = formatTierScore(current, priority)
+            if (candScore != currScore) return candScore > currScore
+        }
         // Between two lossless copies, depth then rate. Bitrate is the wrong
         // measure for those: a FLAC's states how compressible the recording
         // was, and most lossless streams state none at all — so a 24/192 and a

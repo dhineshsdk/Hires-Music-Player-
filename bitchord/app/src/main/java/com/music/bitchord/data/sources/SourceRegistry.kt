@@ -77,7 +77,9 @@ data class SourceConfig(
 
     /** Whether this source is shut out right now because it needs an output that isn't connected. */
     val awaitsLosslessOutput: Boolean
-        get() = checkValidLossless && !LosslessOutput.capable
+        get() = checkValidLossless &&
+            !AppSettings.allowLosslessOnAllOutputs.value &&
+            !LosslessOutput.capable
 
     /**
      * Whether this is an addon known to be out of date: its manifest doesn't

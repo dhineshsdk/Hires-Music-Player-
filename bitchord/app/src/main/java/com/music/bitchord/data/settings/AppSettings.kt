@@ -175,6 +175,25 @@ enum class SongSort {
 }
 
 /**
+ * Preferred stream format ranking when a track is offered in multiple high-quality formats
+ * (Dolby Atmos E-AC-3 JOC, Hi-Res Lossless FLAC >16-bit/>48kHz, and CD/standard Lossless).
+ */
+enum class AudioFormatPriority(val label: String, val summary: String) {
+    DOLBY_ATMOS_FIRST(
+        label = "Dolby Atmos First",
+        summary = "1. Dolby Atmos · 2. Hi-Res Lossless FLAC · 3. Lossless",
+    ),
+    HIRES_FLAC_FIRST(
+        label = "Hi-Res Lossless FLAC First",
+        summary = "1. Hi-Res Lossless FLAC · 2. Lossless · 3. Dolby Atmos",
+    ),
+    LOSSLESS_STEREO_FIRST(
+        label = "Lossless Stereo First",
+        summary = "1. Lossless · 2. Hi-Res Lossless FLAC · 3. Dolby Atmos",
+    ),
+}
+
+/**
  * App settings, backed by SharedPreferences and exposed as flows.
  *
  * PlaybackService runs in the same process as the UI, so it observes these
@@ -196,6 +215,15 @@ object AppSettings {
      */
     val audioQualityWifi = MutableStateFlow(AudioQuality.LOSSLESS)
     val audioQualityCellular = MutableStateFlow(AudioQuality.LOSSLESS)
+
+    /**
+     * Allows Hi-Res Lossless FLAC, Lossless, and Dolby Atmos sources/addons to remain active on
+     * built-in phone speakers and all headphone outputs rather than gating behind wired/LDAC hardware.
+     */
+    val allowLosslessOnAllOutputs = MutableStateFlow(true)
+
+    /** User-selected priority across Dolby Atmos, Hi-Res Lossless FLAC, and standard Lossless. */
+    val audioFormatPriority = MutableStateFlow(AudioFormatPriority.DOLBY_ATMOS_FIRST)
 
     /** Allowed duration difference when replacing a playing stream with one from a source. */
     val upgradeLengthSlackSeconds = MutableStateFlow(DEFAULT_UPGRADE_LENGTH_SLACK_SECONDS)
@@ -965,6 +993,13 @@ object AppSettings {
         migrateSingleQuality()
         audioQualityWifi.value = readQuality(KEY_QUALITY_WIFI)
         audioQualityCellular.value = readQuality(KEY_QUALITY_CELLULAR)
+        allowLosslessOnAllOutputs.value = prefs.getBoolean(KEY_ALLOW_LOSSLESS_ALL_OUTPUTS, true)
+        audioFormatPriority.value = runCatching {
+            AudioFormatPriority.valueOf(
+                prefs.getString(KEY_AUDIO_FORMAT_PRIORITY, null)
+                    ?: AudioFormatPriority.DOLBY_ATMOS_FIRST.name,
+            )
+        }.getOrDefault(AudioFormatPriority.DOLBY_ATMOS_FIRST)
         upgradeLengthSlackSeconds.value = prefs.getInt(
             KEY_UPGRADE_LENGTH_SLACK_SECONDS,
             DEFAULT_UPGRADE_LENGTH_SLACK_SECONDS,
@@ -1269,6 +1304,16 @@ object AppSettings {
     fun setAudioQualityCellular(value: AudioQuality) {
         audioQualityCellular.value = value
         prefs.edit().putString(KEY_QUALITY_CELLULAR, value.name).apply()
+    }
+
+    fun setAllowLosslessOnAllOutputs(value: Boolean) {
+        allowLosslessOnAllOutputs.value = value
+        prefs.edit().putBoolean(KEY_ALLOW_LOSSLESS_ALL_OUTPUTS, value).apply()
+    }
+
+    fun setAudioFormatPriority(value: AudioFormatPriority) {
+        audioFormatPriority.value = value
+        prefs.edit().putString(KEY_AUDIO_FORMAT_PRIORITY, value.name).apply()
     }
 
     fun setUpgradeLengthSlackSeconds(value: Int) {
@@ -2388,6 +2433,8 @@ object AppSettings {
     private const val KEY_DISCORD_BUTTON_2_TEXT = "discord_button_2_text"
     private const val KEY_DISCORD_BUTTON_2_VISIBLE = "discord_button_2_visible"
     private const val KEY_DISCORD_INFO_DISMISSED = "discord_info_dismissed"
+    private const val KEY_ALLOW_LOSSLESS_ALL_OUTPUTS = "allow_lossless_all_outputs"
+    private const val KEY_AUDIO_FORMAT_PRIORITY = "audio_format_priority"
     private const val KEY_LAST_VERSION_CODE = "last_version_code"
 }
 

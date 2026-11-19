@@ -1,7 +1,12 @@
 package com.music.bitchord
 
 import android.media.AudioDeviceInfo
+import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.settings.AudioFormatPriority
 import com.music.bitchord.data.sources.SourceConfig
+import com.music.bitchord.data.sources.SourceKind
+import com.music.bitchord.data.sources.SourceResolver
+import com.music.bitchord.data.sources.StreamFormat
 import com.music.bitchord.data.sources.addon.AddonManifest
 import com.music.bitchord.data.sources.addon.AddonQualityOption
 import com.music.bitchord.playback.audio.LosslessOutput
@@ -136,5 +141,49 @@ class AddonPolicyTest {
     @Test
     fun `the phone speaker alone does not qualify`() {
         assertEquals(LosslessOutput.State(), LosslessOutput.decide(setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER), null))
+    }
+
+    @Test
+    fun `allowLosslessOnAllOutputs bypasses phone speaker addon gate when enabled`() {
+        val prev = AppSettings.allowLosslessOnAllOutputs.value
+        val gatedAddon = SourceConfig(kind = SourceKind.ADDON, baseUrl = "https://addon.example", checkValidLossless = true)
+        try {
+            AppSettings.allowLosslessOnAllOutputs.value = true
+            assertFalse(gatedAddon.awaitsLosslessOutput)
+
+            AppSettings.allowLosslessOnAllOutputs.value = false
+            assertEquals(!LosslessOutput.capable, gatedAddon.awaitsLosslessOutput)
+        } finally {
+            AppSettings.allowLosslessOnAllOutputs.value = prev
+        }
+    }
+
+    @Test
+    fun `AudioFormatPriority ranks Atmos Hi-Res FLAC and CD Lossless per preference`() {
+        val atmos = StreamFormat(codec = "eac3-joc", sampleRateHz = 48_000)
+        val hiRes = StreamFormat(codec = "flac", bitDepth = 24, sampleRateHz = 96_000)
+        val cdLossless = StreamFormat(codec = "flac", bitDepth = 16, sampleRateHz = 44_100)
+
+        assertTrue(SourceResolver.isHiResLossless(hiRes))
+        assertFalse(SourceResolver.isHiResLossless(cdLossless))
+
+        // 1. DOLBY_ATMOS_FIRST
+        assertTrue(SourceResolver.isBetter(atmos, hiRes, AudioFormatPriority.DOLBY_ATMOS_FIRST))
+        assertTrue(SourceResolver.isBetter(hiRes, cdLossless, AudioFormatPriority.DOLBY_ATMOS_FIRST))
+        assertFalse(SourceResolver.worthSwapping(hiRes, atmos, AudioFormatPriority.DOLBY_ATMOS_FIRST))
+
+        // 2. HIRES_FLAC_FIRST
+        assertTrue(SourceResolver.isBetter(hiRes, cdLossless, AudioFormatPriority.HIRES_FLAC_FIRST))
+        assertTrue(SourceResolver.isBetter(cdLossless, atmos, AudioFormatPriority.HIRES_FLAC_FIRST))
+        assertFalse(SourceResolver.isBetter(atmos, hiRes, AudioFormatPriority.HIRES_FLAC_FIRST))
+        assertFalse(SourceResolver.worthSwapping(atmos, hiRes, AudioFormatPriority.HIRES_FLAC_FIRST))
+        assertTrue(SourceResolver.worthSwapping(hiRes, atmos, AudioFormatPriority.HIRES_FLAC_FIRST))
+        assertTrue(SourceResolver.worthSwapping(hiRes, cdLossless, AudioFormatPriority.HIRES_FLAC_FIRST))
+
+        // 3. LOSSLESS_STEREO_FIRST
+        assertTrue(SourceResolver.isBetter(cdLossless, hiRes, AudioFormatPriority.LOSSLESS_STEREO_FIRST))
+        assertTrue(SourceResolver.isBetter(hiRes, atmos, AudioFormatPriority.LOSSLESS_STEREO_FIRST))
+        assertFalse(SourceResolver.worthSwapping(atmos, cdLossless, AudioFormatPriority.LOSSLESS_STEREO_FIRST))
+        assertTrue(SourceResolver.worthSwapping(cdLossless, atmos, AudioFormatPriority.LOSSLESS_STEREO_FIRST))
     }
 }

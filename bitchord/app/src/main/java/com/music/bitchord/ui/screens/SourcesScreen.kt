@@ -70,6 +70,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.R
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.settings.AudioFormatPriority
 import com.music.bitchord.data.settings.permits
 import com.music.bitchord.data.smb.SmbRepository
 import com.music.bitchord.data.webdav.WebDavRepository
@@ -132,6 +133,8 @@ fun SourcesScreen(
     val configs by SourceRegistry.configs.collectAsStateWithLifecycle()
     val wifiQuality by AppSettings.audioQualityWifi.collectAsStateWithLifecycle()
     val cellularQuality by AppSettings.audioQualityCellular.collectAsStateWithLifecycle()
+    val allowLosslessAllOutputs by AppSettings.allowLosslessOnAllOutputs.collectAsStateWithLifecycle()
+    val formatPriority by AppSettings.audioFormatPriority.collectAsStateWithLifecycle()
     val metered by AppSettings.meteredConnection.collectAsStateWithLifecycle()
     val upgradeLengthSlackSeconds by AppSettings.upgradeLengthSlackSeconds.collectAsStateWithLifecycle()
     val webdavUrl by AppSettings.webdavUrl.collectAsStateWithLifecycle()
@@ -152,7 +155,8 @@ fun SourcesScreen(
     // say why. Except an addon waiting on a lossless output: it is not to be
     // contacted at all until one is connected, and connecting one re-runs this.
     val probeKey = configs.filter { it.kind.needsServer }
-        .joinToString { "${it.id}@${it.baseUrl}@${it.checkValidLossless}" } + "@${losslessOutput.capable}"
+        .joinToString { "${it.id}@${it.baseUrl}@${it.checkValidLossless}" } +
+        "@${losslessOutput.capable}@$allowLosslessAllOutputs"
     LaunchedEffect(probeKey) {
         configs.filter { it.kind.needsServer && it.isComplete && !it.awaitsLosslessOutput }.forEach { config ->
             val source = SourceRegistry.instance(config.id) ?: return@forEach
@@ -301,6 +305,65 @@ fun SourcesScreen(
             RowDivider()
             AddSourceRow(
                 onClick = { onEditSource(SourceConfig(kind = SourceKind.ADDON)) },
+            )
+        }
+
+        val configuredAddons = configs.filter { it.kind.needsServer && it.isComplete }
+        val healthyAddons = configuredAddons.count { health[it.id] is SourceHealth.Ok }
+        val outputStatusLabel = when {
+            allowLosslessAllOutputs -> "Phone speaker + all earphones unlocked"
+            losslessOutput.capable -> "External lossless output (${losslessOutput.via?.name ?: "Active"})"
+            else -> "Requires wired/USB/LDAC output"
+        }
+        SettingsGroup(
+            header = "Hi-Res, Dolby Atmos & Personal Addons",
+            footer = "Tap Audio format priority to cycle ranking between Dolby Atmos, Hi-Res Lossless FLAC, and Lossless. Personal addons (Qobuz, Tidal, Deezer) respect each server's own daily quota.",
+        ) {
+            SettingsRow(
+                icon = SfIcons.GraphicEq,
+                title = "Unlock lossless on phone speaker",
+                subtitle = "Allow Hi-Res Lossless FLAC, Lossless & Dolby Atmos on phone speakers and all earphones",
+                onClick = { AppSettings.setAllowLosslessOnAllOutputs(!allowLosslessAllOutputs) },
+                trailing = {
+                    IosSwitch(
+                        checked = allowLosslessAllOutputs,
+                        onCheckedChange = { AppSettings.setAllowLosslessOnAllOutputs(it) },
+                    )
+                },
+            )
+            RowDivider()
+            SettingsRow(
+                icon = SfIcons.Tune,
+                title = "Audio format priority",
+                subtitle = formatPriority.summary,
+                badge = if (formatPriority == AudioFormatPriority.DOLBY_ATMOS_FIRST) "Atmos" else "FLAC",
+                onClick = {
+                    val entries = AudioFormatPriority.entries
+                    AppSettings.setAudioFormatPriority(
+                        entries[(entries.indexOf(formatPriority) + 1) % entries.size],
+                    )
+                },
+            )
+            RowDivider()
+            SettingsRow(
+                icon = SfIcons.Dns,
+                title = "Addon health & output status",
+                subtitle = "$outputStatusLabel · Priority: ${formatPriority.label}",
+                badge = "$healthyAddons/${configuredAddons.size} OK",
+            )
+            RowDivider()
+            SettingsRow(
+                icon = SfIcons.Extension,
+                title = "Add personal Hi-Res addon",
+                subtitle = "Paste a personal Qobuz, Tidal, or Deezer addon URL (Discord / self-hosted)",
+                onClick = {
+                    onEditSource(
+                        SourceConfig(
+                            kind = SourceKind.ADDON,
+                            label = "Personal Hi-Res Addon (Qobuz · Tidal · Deezer)",
+                        ),
+                    )
+                },
             )
         }
 
