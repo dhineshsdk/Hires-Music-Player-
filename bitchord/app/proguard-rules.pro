@@ -88,3 +88,7 @@
 -dontwarn org.conscrypt.**
 -dontwarn com.android.org.conscrypt.**
 -dontwarn io.github.muntashirakon.adb.**
+
+# ---- Provider playback SDKs (Spotify App Remote / Apple MusicKit) ------------
+-keep class com.spotify.** { *; }
+-keep class com.apple.android.music.** { *; }

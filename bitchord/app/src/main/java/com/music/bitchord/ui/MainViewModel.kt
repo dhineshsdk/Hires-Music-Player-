@@ -62,6 +62,7 @@ import com.music.bitchord.data.model.PlaylistPrivacy
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.model.ShelfItem
+import com.music.bitchord.data.model.PlaybackSourceType
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.SongMenu
 import com.music.bitchord.data.model.SubscriptionState
@@ -108,6 +109,7 @@ import com.music.bitchord.playback.BoundedContextRequests
 import com.music.bitchord.playback.DirectSourceGate
 import com.music.bitchord.playback.contextEntryKey
 import com.music.bitchord.playback.StreamChoice
+import com.music.bitchord.playback.provider.ProviderTrackId
 import com.music.bitchord.ui.screens.CACHE_FOLDER_BROWSE_ID
 import com.music.bitchord.data.LocalGroup
 import com.music.bitchord.data.LocalGroups
@@ -2916,9 +2918,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     if (it.browseId == browseId) it.copy(thumbnailUrl = cover) else it
                 }
             }
+            val nativePlayback = AppSettings.spotifyNativePlayback.value
             val tracks = runCatching {
                 SpotifyLibrary.tracks(playlistId) { soFar ->
-                    setSongs(UiState.Success(soFar.map { it.asPendingSong() }))
+                    val mapped = if (nativePlayback) {
+                        soFar.map { it.asNativeSong(browseId) }
+                    } else {
+                        soFar.map { it.asPendingSong() }
+                    }
+                    setSongs(UiState.Success(mapped))
                 }
             }.getOrElse {
                 setSongs(UiState.Error(it.message ?: text(R.string.failed)))
@@ -2926,6 +2934,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (tracks.isEmpty()) {
                 setSongs(UiState.Error(text(R.string.spotify_empty_tracks)))
+                return@launch
+            }
+            if (nativePlayback) {
+                setSongs(UiState.Success(tracks.map { it.asNativeSong(browseId) }))
                 return@launch
             }
             val gate = Semaphore(SPOTIFY_MATCH_PARALLELISM)
@@ -2951,6 +2963,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    private fun SpotifyTrack.asNativeSong(browseId: String) = Song(
+        videoId = "${ProviderTrackId.SPOTIFY_TRACK_PREFIX}${id.removePrefix(ProviderTrackId.SPOTIFY_TRACK_PREFIX)}",
+        title = title,
+        artist = artist,
+        thumbnailUrl = imageUrl,
+        durationText = durationMs.takeIf { it > 0 }?.let { ms ->
+            "%d:%02d".format(ms / 60000, ms / 1000 % 60)
+        },
+        albumName = album,
+        playbackSource = "Spotify",
+        playbackSourceType = PlaybackSourceType.BROWSE,
+        playbackSourceId = browseId,
+    )
 
     private fun SpotifyTrack.asPendingSong() = Song(
         videoId = SPOTIFY_PENDING_PREFIX + id,

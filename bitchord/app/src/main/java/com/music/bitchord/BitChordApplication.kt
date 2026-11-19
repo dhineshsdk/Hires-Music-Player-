@@ -17,6 +17,7 @@ import coil3.svg.SvgDecoder
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import okhttp3.OkHttpClient
 import com.music.bitchord.auth.AuthStore
+import com.music.bitchord.auth.ProviderCredentialsStore
 import com.music.bitchord.data.DebugLog
 import com.music.bitchord.data.lyrics.LyricsTranslation
 import androidx.appcompat.app.AppCompatDelegate
@@ -201,6 +202,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
         // The public "apps open right now" count; see Presence.
         com.music.bitchord.data.presence.AndroidPresence.install(this)
         backgroundInit.join()
+        ProviderCredentialsStore.init(this)
     }
 
     /**

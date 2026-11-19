@@ -1,6 +1,7 @@
 # Built application files
 *.apk
 *.aar
+!bitchord/app/libs/*.aar
 *.ap_
 *.aab
 

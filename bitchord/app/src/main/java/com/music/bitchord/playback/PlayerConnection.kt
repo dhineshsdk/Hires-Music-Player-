@@ -36,6 +36,7 @@ import com.music.bitchord.data.sources.SourceRegistry
 import com.music.bitchord.data.sources.SourceResolver
 import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.download.Downloads
+import com.music.bitchord.playback.provider.ProviderTrackId
 import com.music.bitchord.ui.rememberIsForeground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -676,6 +677,7 @@ fun Song.toMediaItem(): MediaItem {
         ?: Downloads.verifiedSavedUri(videoId)
     val uriString = offlineUri ?: when {
         videoId.startsWith("content://") || videoId.startsWith("file://") -> videoId
+        ProviderTrackId.isProviderSdkTrack(videoId) -> ProviderTrackId.toPlaybackUri(videoId)
         // Title, artist and runtime ride along in the URI because they are what
         // a cross-source match is made on, and the resolver runs on ExoPlayer's
         // loader thread with nothing but a DataSpec in hand — see
@@ -847,12 +849,14 @@ const val DIRECT_YOUTUBE_PARAMETER = "direct_youtube"
  * source-backed track differently again, so filing lines under it would scatter
  * one song's story across several names.
  */
-fun mediaIdIn(uri: Uri): String? = if (uri.authority == "source") {
-    val configId = uri.getQueryParameter("s")
-    val trackId = uri.getQueryParameter("t")
-    if (configId != null && trackId != null) SourceRegistry.trackKey(configId, trackId) else null
-} else {
-    uri.getQueryParameter("v")
+fun mediaIdIn(uri: Uri): String? = when {
+    ProviderTrackId.isProviderSdkUri(uri) -> uri.getQueryParameter("id")
+    uri.authority == "source" -> {
+        val configId = uri.getQueryParameter("s")
+        val trackId = uri.getQueryParameter("t")
+        if (configId != null && trackId != null) SourceRegistry.trackKey(configId, trackId) else null
+    }
+    else -> uri.getQueryParameter("v")
 }
 
 /**

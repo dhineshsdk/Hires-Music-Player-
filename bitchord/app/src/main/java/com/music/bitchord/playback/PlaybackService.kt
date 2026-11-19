@@ -83,6 +83,11 @@ import com.music.bitchord.playback.cast.CastSink
 import com.music.bitchord.playback.cast.RemoteSpeaker
 import com.music.bitchord.playback.cast.Speakers
 import com.music.bitchord.playback.cast.CastStream
+import com.music.bitchord.playback.provider.AppleMusicKitBackend
+import com.music.bitchord.playback.provider.ProviderPlaybackCoordinator
+import com.music.bitchord.playback.provider.ProviderPlaybackSpeaker
+import com.music.bitchord.playback.provider.ProviderTrackId
+import com.music.bitchord.playback.provider.SpotifyAppRemoteBackend
 import com.music.bitchord.playback.audio.PrecisionAudioSink
 import com.music.bitchord.playback.dsd.DsdExtractorsFactory
 import com.music.bitchord.playback.audio.DirectAudioProbe
@@ -768,8 +773,42 @@ class PlaybackService : MediaLibraryService() {
         WearBridge.createSpeaker(this, scope, localPlayer = { player }, onChanged = { publishWidgetState() })
     }
 
+    /**
+     * Single coordinator for SDK-controlled provider playback (Spotify App Remote / Apple MusicKit)
+     * alongside BitChord's native player, preserving exclusive audible ownership.
+     */
+    private val providerPlaybackCoordinator by lazy {
+        ProviderPlaybackCoordinator(
+            scope = scope,
+            spotifyBackend = SpotifyAppRemoteBackend(applicationContext),
+            appleBackend = AppleMusicKitBackend(applicationContext),
+            pauseLocalPlayer = { player?.pause() },
+            resumeLocalPlayer = {
+                player?.let { p ->
+                    if (p.playbackState == Player.STATE_IDLE) p.prepare()
+                    p.play()
+                }
+            },
+            advanceQueueToNext = {
+                player?.let { p ->
+                    if (p.hasNextMediaItem()) {
+                        p.seekToNextMediaItem()
+                    }
+                }
+            },
+            onNotice = { message -> Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show() },
+        )
+    }
+
+    private val providerSpeaker by lazy {
+        ProviderPlaybackSpeaker(
+            coordinator = providerPlaybackCoordinator,
+            localPlayer = { player },
+        )
+    }
+
     /** Every remote speaker, as the one the session player reports. */
-    private val speakers by lazy { Speakers(listOf(castPlayback, watchSpeaker)) }
+    private val speakers by lazy { Speakers(listOf(castPlayback, watchSpeaker, providerSpeaker)) }
 
     /**
      * Binds playback to a Listen Together party, when there is one.
@@ -1405,6 +1444,11 @@ class PlaybackService : MediaLibraryService() {
             // usually *not* the one playing, which is exactly why the lines
             // have to say. See [TrackLog.about].
             val about = TrackLog.about(mediaIdIn(dataSpec.uri))
+            if (ProviderTrackId.isProviderSdkUri(dataSpec.uri)) {
+                throw java.io.IOException(
+                    "SDK-controlled track (${dataSpec.uri}) is played via ProviderPlaybackCoordinator, not direct stream resolution",
+                )
+            }
             // A source-backed track is resolved by whichever source can serve
             // it, which is not necessarily the one it was queued from — see
             // [SourceResolver.resolve]. Handled ahead of the YouTube path
@@ -3985,6 +4029,7 @@ class PlaybackService : MediaLibraryService() {
     private fun recoverFrom(error: PlaybackException, player: ExoPlayer) {
         val item = player.currentMediaItem ?: return
         val mediaId = item.mediaId
+        if (ProviderTrackId.isProviderSdkTrack(mediaId)) return
         val uri = item.localConfiguration?.uri
         val position = player.currentPosition.coerceAtLeast(0L)
         val attempts = recoveries.getOrDefault(mediaId, 0) + 1
@@ -4556,6 +4601,7 @@ class PlaybackService : MediaLibraryService() {
     private fun lookForBetterCopy(player: ExoPlayer) {
         val item = player.currentMediaItem ?: return
         val mediaId = item.mediaId
+        if (ProviderTrackId.isProviderSdkTrack(mediaId)) return
         val uri = item.localConfiguration?.uri
         val alreadyPending = QualityUpgrade.isPending(mediaId)
         val shelved = QualityUpgrade.shelvedFor(mediaId)
@@ -7830,6 +7876,7 @@ class PlaybackService : MediaLibraryService() {
         // stop, and the next one picks the session up where it was.
         CastController.detach(castPlayback)
         castPlayback.release()
+        providerPlaybackCoordinator.release()
         closeAudioEffectSession()
         bluetoothTracker.stop()
         audioManager?.unregisterAudioDeviceCallback(outputDeviceCallback)
