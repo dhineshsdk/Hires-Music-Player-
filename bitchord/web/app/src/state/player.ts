@@ -679,7 +679,7 @@ async function startAt(at: number, { startSec = 0, auto = false, autoplay = true
       index: at,
       nowPlaying: { ...hintOf(entry.track), title: entry.track.title || 'Can’t play this here yet' },
       status: 'error',
-      error: 'YouTube playback needs the BitChord extension.',
+      error: 'YouTube playback needs the Aurex extension.',
     });
     return;
   }

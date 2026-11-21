@@ -19,7 +19,7 @@ const output = fileURLToPath(new URL('../.output/', import.meta.url));
 const target = fileURLToPath(new URL('../../app/public/downloads/', import.meta.url));
 mkdirSync(target, { recursive: true });
 // Each version's zips are named for it; the previous ones go.
-for (const name of readdirSync(target)) if (/^bitchord-extension-.*\.zip$/.test(name)) rmSync(join(target, name));
+for (const name of readdirSync(target)) if (/^(?:bitchord|aurex)-extension-.*\.zip$/.test(name)) rmSync(join(target, name));
 
 function filesUnder(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -40,8 +40,8 @@ for (const [browser, folder] of Object.entries(builds)) {
   }
   version = manifest.version;
 
-  // The version in brackets, on the zip and the folder inside it: "bitchord-extension-chrome (0.4.3)".
-  const parent = `bitchord-extension-${browser} (${manifest.version})`;
+  // The version in brackets, on the zip and the folder inside it: "aurex-extension-chrome (0.4.3)".
+  const parent = `aurex-extension-${browser} (${manifest.version})`;
   const entries = {};
   for (const file of filesUnder(root)) {
     entries[`${parent}/${relative(root, file).split(sep).join('/')}`] = readFileSync(file);

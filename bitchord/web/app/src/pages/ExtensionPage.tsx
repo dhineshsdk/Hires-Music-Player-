@@ -30,7 +30,7 @@ interface Download {
  * has loaded, the configured URLs and the unversioned names stand in.
  */
 function downloadsFor(published: PublishedExtension | null): Download[] {
-  const folder = (browser: Browser) => `bitchord-extension-${browser}${published ? ` (${published.version})` : ''}`;
+  const folder = (browser: Browser) => `aurex-extension-${browser}${published ? ` (${published.version})` : ''}`;
   return [
     {
       browser: 'chrome',
@@ -121,7 +121,7 @@ export default function ExtensionPage() {
 
   return (
     <div className={settingsUi.centered}>
-      <PageHeader title="BitChord Extension" />
+      <PageHeader title="Aurex Extension" />
       <div className={settingsUi.body}>
         <section className={settingsUi.group} aria-live="polite">
           <div className={settingsUi.row}>

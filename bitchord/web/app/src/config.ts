@@ -3,11 +3,11 @@ export const config = {
   /** Pinned in development by the manifest `key` (web/extension/wxt.config.ts). */
   chromiumExtensionId: import.meta.env.VITE_EXTENSION_ID_CHROMIUM || DEV_EXTENSION_ID,
   /** The extension packages (web/extension: `pnpm package` copies them into public/downloads). */
-  extensionChromeUrl: import.meta.env.VITE_EXTENSION_CHROME_URL || '/downloads/bitchord-extension-chrome.zip',
-  extensionFirefoxUrl: import.meta.env.VITE_EXTENSION_FIREFOX_URL || '/downloads/bitchord-extension-firefox.zip',
+  extensionChromeUrl: import.meta.env.VITE_EXTENSION_CHROME_URL || '/downloads/aurex-extension-chrome.zip',
+  extensionFirefoxUrl: import.meta.env.VITE_EXTENSION_FIREFOX_URL || '/downloads/aurex-extension-firefox.zip',
   /** The version the zips above hold, for the "update available" notice. */
   extensionManifestUrl: import.meta.env.VITE_EXTENSION_MANIFEST_URL || '/downloads/extension.json',
-  androidAppUrl: import.meta.env.VITE_ANDROID_APP_URL || 'https://github.com/kushagrasinghx/BitChord/releases/latest',
+  androidAppUrl: import.meta.env.VITE_ANDROID_APP_URL || 'https://github.com/dhineshsdk/Hires-Music-Player-/releases',
   /** Aurex Listen Together & Mobile Sync server. */
   partyServerUrl: import.meta.env.VITE_PARTY_SERVER_URL || 'http://192.168.1.13:8787',
 } as const;

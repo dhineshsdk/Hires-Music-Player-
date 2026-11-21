@@ -30,10 +30,10 @@ declare const __DISCORD_PRESENCE__: boolean;
 export const APPLICATION_ID = '1543679166967193620';
 const GATEWAY = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const API = 'https://discord.com/api/v9';
-const PROJECT_URL = 'https://github.com/kushagrasinghx/BitChord';
+const PROJECT_URL = 'https://github.com/dhineshsdk/Hires-Music-Player-';
 const DEFAULT_BUTTON_1 = 'Listen on YouTube Music';
-const DEFAULT_BUTTON_2 = 'Visit BitChord';
-const APP_NAME = 'BitChord';
+const DEFAULT_BUTTON_2 = 'Visit Aurex';
+const APP_NAME = 'Aurex';
 
 const INITIAL_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;

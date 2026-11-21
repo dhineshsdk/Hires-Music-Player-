@@ -209,7 +209,7 @@ export function DiscordSettings() {
               <span>Name</span>
               <input
                 className={settingsUi.input}
-                placeholder="BitChord"
+                placeholder="Aurex"
                 value={options.activityName}
                 onChange={(e) => set({ activityName: e.currentTarget.value })}
               />
@@ -236,13 +236,13 @@ export function DiscordSettings() {
                 />
               </label>
             )}
-            <Toggle label="BitChord button" checked={options.button2Visible} onChange={(v) => set({ button2Visible: v })} />
+            <Toggle label="Aurex button" checked={options.button2Visible} onChange={(v) => set({ button2Visible: v })} />
             {options.button2Visible && (
               <label className={settingsUi.controlRow}>
-                <span>BitChord button text</span>
+                <span>Aurex button text</span>
                 <input
                   className={settingsUi.input}
-                  placeholder="Visit BitChord"
+                  placeholder="Visit Aurex"
                   value={options.button2Text}
                   onChange={(e) => set({ button2Text: e.currentTarget.value })}
                 />
