@@ -1467,18 +1467,32 @@ object ListenTogether {
      */
     private fun identity(nickname: String = nickname()): Identity? {
         val store = BitChordApplication.authStore
-        if (!store.isSignedIn) return null
-        val account = store.activeSession ?: return null
+        val devId = deviceId()
+        val guestName = nickname.trim().takeIf { it.isNotBlank() } ?: "Dhinesh SDK (S24+)"
+        if (!store.isSignedIn) {
+            return Identity(
+                userId = sha256("guest:$devId").take(32),
+                deviceId = devId,
+                name = guestName,
+                avatar = null,
+            )
+        }
+        val account = store.activeSession ?: return Identity(
+            userId = sha256("guest:$devId").take(32),
+            deviceId = devId,
+            name = guestName,
+            avatar = null,
+        )
         val profile = account.profiles.firstOrNull { it.profileId == account.activeProfileId }
             ?: account.profiles.firstOrNull()
         val name = nickname.trim().takeIf { it.isNotBlank() }
             ?: profile?.name?.takeIf { it.isNotBlank() }
             ?: account.name.takeIf { it.isNotBlank() }
             ?: account.email.substringBefore('@').takeIf { it.isNotBlank() }
-            ?: return null
+            ?: guestName
         return Identity(
             userId = sha256("${account.accountId}:${profile?.profileId.orEmpty()}").take(32),
-            deviceId = deviceId(),
+            deviceId = devId,
             name = name,
             avatar = profile?.avatar?.takeIf { it.startsWith("http") },
         )

@@ -249,7 +249,7 @@ fun ListenTogetherScreen(
     // the populated code while the sign-in page is open.
     LaunchedEffect(inviteCode, inviteServer, signedIn) {
         val code = inviteCode ?: return@LaunchedEffect
-        if (!signedIn || busy) return@LaunchedEffect
+        if (!ListenTogether.canJoin() || busy) return@LaunchedEffect
 
         val activeServer = (ListenTogether.activePartyServerBase() ?: ListenTogether.effectiveIdleServerBase()).trim().trimEnd('/')
         val targetServer = inviteServer?.trim()?.trimEnd('/')
@@ -494,7 +494,7 @@ fun ListenTogetherScreen(
         if (!state.inParty) {
             PartyLanding(
                 avatarUrl = ListenTogether.myAvatarUrl(),
-                enabled = signedIn && ListenTogether.hasServer && !busy,
+                enabled = ListenTogether.canJoin() && ListenTogether.hasServer && !busy,
                 // The last attempt's message does not belong on the next one.
                 onCreate = {
                     failure = null

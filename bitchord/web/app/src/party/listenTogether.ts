@@ -157,11 +157,20 @@ async function sha256(value: string): Promise<string> {
 async function identity(): Promise<Omit<JoinRequest, 'maxMembers' | 'autoplayEnabled'>> {
   const auth = ytAuthSnapshot();
   const active = auth.signedIn ? auth.active : null;
-  if (!active) throw new PartyError('not_signed_in', 'Sign in to YouTube Music to listen together.');
+  const devId = deviceId();
+  if (!active) {
+    const guestName = partySettings().nickname.trim() || 'Dhinesh SDK (Web)';
+    return {
+      userId: (await sha256(`guest:${devId}`)).slice(0, 32),
+      deviceId: devId,
+      displayName: guestName,
+      avatarUrl: null,
+    };
+  }
   const name = partySettings().nickname.trim() || active.name;
   return {
     userId: (await sha256(`${active.authUser}:${active.id}`)).slice(0, 32),
-    deviceId: deviceId(),
+    deviceId: devId,
     displayName: name,
     avatarUrl: active.avatarUrl?.startsWith('http') ? active.avatarUrl : null,
   };
@@ -204,6 +213,14 @@ function adoptMembership(base: string, membership: PartyMembership): string {
     queue: party.queue,
     connection: 'connecting',
     activity: useParty.getState().activity,
+  });
+  void publishSyncState(base, {
+    activePartyCode: membership.code,
+    serverUrl: base,
+    currentTrack: party.playback.track,
+    isPlaying: party.playback.isPlaying,
+    positionMs: party.playback.effectivePositionMs,
+    updatedBy: membership.you.displayName,
   });
   connect();
   return membership.code;
@@ -570,3 +587,54 @@ export function messageOf(error: unknown): string {
 }
 
 export const QUEUE_EMPTY = EMPTY_QUEUE;
+
+export interface AurexSyncState {
+  activePartyCode: string | null;
+  serverUrl: string;
+  currentTrack: PartyTrack | null;
+  isPlaying: boolean;
+  positionMs: number;
+  lyricTheme: string;
+  updatedAtMs: number;
+  updatedBy: string | null;
+}
+
+export async function publishSyncState(base: string, partial: Partial<AurexSyncState>): Promise<void> {
+  if (!base) return;
+  try {
+    await fetch(`${base}/api/sync/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+  } catch {
+    // Best-effort LAN/cloud sync handoff; ignore when server lacks /api/sync/state.
+  }
+}
+
+export async function fetchSyncState(serverUrl?: string | null): Promise<AurexSyncState | null> {
+  const base = sanitizeServerUrl(serverUrl) ?? idleServer();
+  if (!base) return null;
+  try {
+    const response = await fetch(`${base}/api/sync/state`);
+    if (!response.ok) return null;
+    return (await response.json()) as AurexSyncState;
+  } catch {
+    return null;
+  }
+}
+
+export async function shareJamToDiscord(params: {
+  webhookUrl: string;
+  code: string;
+  serverUrl?: string | null;
+  webUrl?: string;
+  hostName?: string;
+  track?: PartyTrack | null;
+}): Promise<{ ok: boolean; code: string }> {
+  const base = sanitizeServerUrl(params.serverUrl) ?? partyServer() ?? idleServer();
+  return request<{ ok: boolean; code: string }>(`${base}/api/discord/share-jam`, {
+    method: 'POST',
+    body: JSON.stringify({ ...params, serverUrl: base }),
+  });
+}

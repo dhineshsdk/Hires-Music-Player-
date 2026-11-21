@@ -173,3 +173,19 @@ Priority: locale failures and trustworthy lint analysis, then actual serious lin
   - `node --check lyric.js`: exit 0.
   - `./gradlew.bat :app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug '-Pbitchord.bundleWear=false' --console=plain`: `BUILD SUCCESSFUL`; `:app:testDevDebugUnitTest` **1,276** tests (**0 failed**, **1 skipped**), `:shared:jvmTest` **122** tests (**0 failed**), `:app:lintDevDebug` **0 errors** (`716` warnings, `6` info/hints).
   - Installed `app-dev-arm64-v8a-debug.apk` on `SM_S926B`, launched `EXTRA_LOCKSCREEN_STANDBY`, observed `Classy` / `Cyberpunk` / `Ambient` / `Noir` / `Funky` HUD chips and WebView theme switch logs (`theme=classy look: style=gold (金夜) mood=calm`, `theme=cyberpunk look: style=synth80 (シンセ80s) mood=glitch`).
+
+## Update 2026-11-21 (Aurex Web App, Cross-Device Jam & Mobile-Web Sync Server, Discord Broadcaster)
+
+- **Aurex Jam & Mobile-Web Sync Server (`bitchord/web/scripts/jam-server.mjs`):**
+  - Implemented Node.js HTTP + RFC 6455 WebSocket server on `0.0.0.0:8787` (`http://192.168.1.13:8787` LAN) wire-compatible with `bitchord/backend/` (`/`, `/healthz`, `/api/time`, `/api/parties`, `/api/parties/{code}/join`, `/api/parties/{code}/preview`, `/api/parties/{code}/leave`, `/api/parties/{code}`, `/invite/{code}`, `/ws/parties/{code}` supporting both Android `Authorization: Bearer <token>` and browser `Sec-WebSocket-Protocol: bitchord.v1, bitchord.token.<token>`).
+  - Added `/api/sync/state` (`GET`/`POST` active room + track/playback sync across Mobile and Web) and `/api/discord/share-jam` (`POST` posting `0xd4af37` Aurex Jam invite embeds to a configured Discord channel webhook).
+- **Aurex Web App (`bitchord/web/app/`):**
+  - Rebranded `index.html`, `src/assets/logo-mark.svg`, `public/favicon.svg`, `src/shell/MobileTopBar.tsx`, and `src/shell/Sidebar.tsx` to **Aurex** (Molten Gold Harmonic `'A'` vector mark) and added a direct `Jam & Discord` nav item (`/settings/listen-together`).
+  - Updated `src/config.ts` (`VITE_PARTY_SERVER_URL || 'http://192.168.1.13:8787'`), `src/party/listenTogether.ts` (signed-out guest identity `'Dhinesh SDK (Web)'`, `publishSyncState`, `fetchSyncState`, `shareJamToDiscord`), and `src/pages/ListenTogetherPage.tsx` (removed `!signedIn` Start/Join disable guards, added `MobileWebSyncBanner` with `Join Active Phone Jam (<CODE>)`, `Copy Discord Jam Card`, `Discord Jam Broadcaster` webhook UI, and `Discord Rich Presence` settings link).
+- **Android Mobile Client (`bitchord/app/`):**
+  - Updated `bitchord/app/build.gradle.kts` default `listenTogetherServer` to `http://192.168.1.13:8787` (`dev` flavor already enables cleartext traffic), `ListenTogether.kt` (`identity()` guest fallback `'Dhinesh SDK (S24+)'`), and `ListenTogetherScreen.kt` (`ListenTogether.canJoin()` instead of requiring YouTube Music sign-in).
+- **Verification & Live Hardware Test (`SM_S926B`):**
+  - Web: `corepack pnpm@12.11.2 install`, `corepack pnpm@12.11.2 -r typecheck` (`shared`, `extension`, `app`), and `corepack pnpm@12.11.2 --dir app test` (**16** test files / **159** tests passed, `0` failed).
+  - Daemons verified live (`http://localhost:8787/healthz`, `http://192.168.1.13:8787/healthz`, `http://localhost:5173/home` all HTTP `200`, and LAN Wi-Fi reachability confirmed from `SM_S926B`).
+  - Android Gradle: `./gradlew.bat :app:assembleDevDebug :app:testDevDebugUnitTest :shared:jvmTest :app:lintDevDebug '-Pbitchord.bundleWear=false' --console=plain` -> `BUILD SUCCESSFUL`; `:app:testDevDebugUnitTest` **1,276** tests (**0 failed**, **1 skipped**), `:shared:jvmTest` **122** tests (**0 failed**), `:app:lintDevDebug` **0 errors** (`716` warnings, `6` hints).
+  - Installed `app-dev-arm64-v8a-debug.apk` on `SM_S926B`, verified live Web + Mobile Jam party join (`BB45S2` with both `Dhinesh SDK (Web)` host and `Sdk` connected via WebSocket, S24+ UI showing `Listening together · 2`, and `/api/sync/state` synced with the active phone track).

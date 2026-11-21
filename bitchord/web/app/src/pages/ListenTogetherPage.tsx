@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Copy, Crown, LogOut, UserMinus } from 'lucide-react';
+import { Check, Copy, Crown, LogOut, Radio, Send, Smartphone, UserMinus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/PageHeader';
@@ -9,6 +9,8 @@ import {
   controlsLocked,
   createParty,
   DEFAULT_SERVER,
+  fetchSyncState,
+  idleServer,
   joinParty,
   leaveParty,
   messageOf,
@@ -17,6 +19,7 @@ import {
   partySettings,
   previewParty,
   savePartySettings,
+  shareJamToDiscord,
   useParty,
 } from '@/party/listenTogether';
 import { usePlayer } from '@/state/player';
@@ -29,13 +32,12 @@ const primary = 'flex-none rounded-pill bg-key-bg px-4 py-1.5 type-body-emphasiz
 // The code, large, as the phone shows it.
 const invite = 'flex flex-col items-center gap-2.5 rounded-[10px] bg-quinary px-4 py-7 text-center';
 const inviteCode = 'type-[700_40px/48px] tracking-[0.18em]';
+const WEBHOOK_STORAGE_KEY = 'aurex:discord-webhook';
 
 /**
  * Listen Together (ListenTogetherScreen on the phone): start a party or join
- * one by code, then the party itself — its code and invite link, who's in it,
- * and the host's controls. Opened from Settings, and from an invite link
- * (`/invite/:code`), where joining waits for a tap: a browser only lets audio
- * start after the listener has interacted with the page.
+ * one by code, sync active Jam rooms between Aurex Android and Aurex Web,
+ * and broadcast rich Jam invites directly to Discord channels.
  */
 export default function ListenTogetherPage() {
   const params = useParams();
@@ -47,7 +49,7 @@ export default function ListenTogetherPage() {
 
   return (
     <div className={settingsUi.centered}>
-      <PageHeader title="Listen Together" />
+      <PageHeader title="Listen Together & Discord Jam" />
       <div className={settingsUi.body}>
         {state.code ? (
           <InParty />
@@ -62,12 +64,82 @@ export default function ListenTogetherPage() {
   );
 }
 
-function SignInFirst() {
+function GuestModeTip() {
   return (
     <p className={`${settingsUi.footer} mb-4`}>
-      Listen Together uses your YouTube Music account for your name and picture in the party. Sign in on music.youtube.com,
-      then come back.
+      Not signed into YouTube Music in the extension — Aurex will use your party nickname below to sync with your Galaxy S24+ and friends.
     </p>
+  );
+}
+
+function MobileWebSyncBanner({ currentCode }: { currentCode: string | null }) {
+  const serverBase = idleServer();
+  const [copiedServer, setCopiedServer] = useState(false);
+  const sync = useQuery({
+    queryKey: ['party', 'syncState', serverBase],
+    queryFn: () => fetchSyncState(serverBase),
+    refetchInterval: 3000,
+    retry: false,
+  });
+  const joinActive = useMutation({
+    mutationFn: ({ code, server }: { code: string; server: string }) => joinParty(code, server),
+  });
+
+  useEffect(() => {
+    if (!copiedServer) return;
+    const t = setTimeout(() => setCopiedServer(false), 1500);
+    return () => clearTimeout(t);
+  }, [copiedServer]);
+
+  const activeCode = sync.data?.activePartyCode;
+  const activeServer = sync.data?.serverUrl || serverBase;
+  const trackLabel = sync.data?.currentTrack?.title
+    ? `${sync.data.currentTrack.title}${sync.data.currentTrack.artist ? ` — ${sync.data.currentTrack.artist}` : ''}`
+    : null;
+
+  return (
+    <>
+      <h2 className={settingsUi.sectionHeader}>Aurex Mobile ↔ Web Sync</h2>
+      <section className={settingsUi.group}>
+        <div className={settingsUi.row}>
+          <span className={settingsUi.rowText}>
+            <span className="inline-flex items-center gap-1.5">
+              <Smartphone size={15} />
+              <span>Sync Server</span>
+            </span>
+            <span className={settingsUi.rowDetail}>{serverBase || 'Not configured'}</span>
+          </span>
+          {serverBase && (
+            <button
+              className={settingsUi.inlineButton}
+              onClick={() => void navigator.clipboard.writeText(serverBase).then(() => setCopiedServer(true))}
+            >
+              {copiedServer ? 'Copied' : 'Copy URL'}
+            </button>
+          )}
+        </div>
+        {activeCode && activeCode !== currentCode && (
+          <div className={settingsUi.row}>
+            <span className={settingsUi.rowText}>
+              <span className="inline-flex items-center gap-1.5">
+                <Radio size={15} />
+                <span>Active Phone Jam ({activeCode})</span>
+              </span>
+              <span className={settingsUi.rowDetail}>
+                {trackLabel ?? `${sync.data?.updatedBy || 'Aurex Device'} is listening right now`}
+              </span>
+            </span>
+            <button
+              className={primary}
+              disabled={joinActive.isPending}
+              onClick={() => joinActive.mutate({ code: activeCode, server: activeServer })}
+            >
+              {joinActive.isPending ? 'Joining…' : `Join Active Phone Jam (${activeCode})`}
+            </button>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -85,16 +157,16 @@ function StartOrJoin({ signedIn }: { signedIn: boolean }) {
   return (
     <>
       <p className={lede}>
-        Listen to the same music at the same moment with up to five devices. Anyone in the party can play, pause and skip.
+        Listen to the same music at the same moment across your Galaxy S24+, Aurex Web, and Discord friends. Anyone in the party can play, pause, and queue tracks.
       </p>
-      {!signedIn && <SignInFirst />}
+      {!signedIn && <GuestModeTip />}
       <section className={settingsUi.group}>
         <div className={settingsUi.row}>
           <span className={settingsUi.rowText}>
             <span>Start a Party</span>
-            <span className={settingsUi.rowDetail}>Whatever you’re playing comes with you.</span>
+            <span className={settingsUi.rowDetail}>Generates a 6-character code for Mobile, Web & Discord.</span>
           </span>
-          <button className={primary} disabled={!signedIn || create.isPending} onClick={() => create.mutate()}>
+          <button className={primary} disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? 'Starting…' : 'Start'}
           </button>
         </div>
@@ -123,13 +195,15 @@ function StartOrJoin({ signedIn }: { signedIn: boolean }) {
         </form>
       </section>
 
+      <MobileWebSyncBanner currentCode={null} />
+
       <h2 className={settingsUi.sectionHeader}>You</h2>
       <section className={settingsUi.group}>
         <label className={settingsUi.controlRow}>
           <span>Name in parties</span>
           <input
             className={settingsUi.input}
-            placeholder="Your YouTube name"
+            placeholder="Dhinesh SDK (Web)"
             value={settings.nickname}
             maxLength={80}
             onChange={(e) => update({ nickname: e.currentTarget.value })}
@@ -139,13 +213,26 @@ function StartOrJoin({ signedIn }: { signedIn: boolean }) {
           <span>Party server</span>
           <input
             className={settingsUi.input}
-            placeholder={DEFAULT_SERVER ? new URL(DEFAULT_SERVER).host : 'party.example.com'}
+            placeholder={DEFAULT_SERVER ? new URL(DEFAULT_SERVER).host : '192.168.1.13:8787'}
             value={settings.customServer}
             onChange={(e) => update({ customServer: e.currentTarget.value })}
           />
         </label>
       </section>
-      <p className={settingsUi.footer}>Leave the server empty to use BitChord’s. Anyone joining your party uses the server it’s on.</p>
+      <p className={settingsUi.footer}>Leave the server empty to use Aurex’s synced LAN/default server. Anyone joining your party uses the server it’s on.</p>
+
+      <h2 className={settingsUi.sectionHeader}>Discord</h2>
+      <section className={settingsUi.group}>
+        <div className={settingsUi.row}>
+          <span className={settingsUi.rowText}>
+            <span>Discord Rich Presence</span>
+            <span className={settingsUi.rowDetail}>Show what you’re listening to on your Discord profile and let friends join.</span>
+          </span>
+          <button className={settingsUi.inlineButton} onClick={() => navigate('/settings/discord')}>
+            Open Discord Settings
+          </button>
+        </div>
+      </section>
     </>
   );
 }
@@ -163,7 +250,7 @@ function InviteCard({ code, server, signedIn }: { code: string; server: string |
       {data && (
         <>
           <p className={lede}>
-            {data.hostName ? `${data.hostName}’s party` : 'A Listen Together party'}
+            {data.hostName ? `${data.hostName}’s party` : 'An Aurex Listen Together party'}
             {data.memberCount ? ` · ${data.memberCount} of ${data.maxMembers} listening` : ''}
           </p>
           <div className="flex gap-1.5">
@@ -173,10 +260,10 @@ function InviteCard({ code, server, signedIn }: { code: string; server: string |
           </div>
         </>
       )}
-      {!signedIn && <SignInFirst />}
+      {!signedIn && <GuestModeTip />}
       <button
         className="mt-1.5 flex-none rounded-pill bg-key-bg px-7 py-2.5 type-title-3-emphasized text-white disabled:opacity-45"
-        disabled={!signedIn || join.isPending || data?.isFull || preview.isError}
+        disabled={join.isPending || data?.isFull || preview.isError}
         onClick={() => join.mutate()}
       >
         {data?.isFull ? 'This party is full' : join.isPending ? 'Joining…' : 'Tap to Join'}
@@ -198,15 +285,47 @@ function InParty() {
   const state = useParty();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [copiedDiscordCard, setCopiedDiscordCard] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem(WEBHOOK_STORAGE_KEY) ?? '');
+  const [discordNotice, setDiscordNotice] = useState<string | null>(null);
+
   const isHost = state.you?.isHost === true;
   const locked = controlsLocked(state);
-  const custom = partyServer() && partyServer() !== DEFAULT_SERVER ? partyServer() : null;
+  const effectiveServer = partyServer() || DEFAULT_SERVER;
+  const custom = effectiveServer && effectiveServer !== DEFAULT_SERVER ? effectiveServer : null;
   const link = inviteUrl(state.code!, custom);
+  const encodedServer = encodeURIComponent(effectiveServer);
+  const webJoinUrl = `${window.location.origin}/invite/${state.code}?server=${encodedServer}`;
+  const androidJoinUrl = `bitchord://party/${state.code}?server=${encodedServer}`;
+  const nowTrackText = state.playback.track?.title
+    ? `${state.playback.track.title}${state.playback.track.artist ? ` — ${state.playback.track.artist}` : ''}`
+    : 'Ready to jam';
+
+  const discordShare = useMutation({
+    mutationFn: () =>
+      shareJamToDiscord({
+        webhookUrl,
+        code: state.code!,
+        serverUrl: effectiveServer,
+        webUrl: window.location.origin,
+        hostName: state.you?.displayName ?? 'Aurex Listener',
+        track: state.playback.track,
+      }),
+    onSuccess: () => setDiscordNotice('Posted Jam invite embed to Discord channel!'),
+    onError: (err) => setDiscordNotice(err instanceof Error ? err.message : 'Failed to post to Discord.'),
+  });
+
   useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
   }, [copied]);
+
+  useEffect(() => {
+    if (!copiedDiscordCard) return;
+    const t = setTimeout(() => setCopiedDiscordCard(false), 1500);
+    return () => clearTimeout(t);
+  }, [copiedDiscordCard]);
 
   const status =
     state.connection === 'live'
@@ -217,19 +336,35 @@ function InParty() {
         ? 'Reconnecting…'
         : 'Offline';
 
+  const discordCardText = [
+    `🎧 **Aurex Live Jam — Room \`${state.code}\`**`,
+    `Playing: **${nowTrackText}**`,
+    `Join on Web: ${webJoinUrl}`,
+    `Join on Aurex Android: ${androidJoinUrl}`,
+  ].join('\n');
+
   return (
     <>
       <div className={invite}>
         <p className={inviteCode}>{state.code}</p>
         <p className={settingsUi.footer}>{status}</p>
-        <button
-          className="inline-flex items-center gap-1.5 rounded-pill bg-quaternary px-3.5 py-1.5 type-callout-emphasized"
-          onClick={() => void navigator.clipboard.writeText(link).then(() => setCopied(true))}
-          title={link}
-        >
-          {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copied ? 'Copied' : 'Copy Invite Link'}
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-pill bg-quaternary px-3.5 py-1.5 type-callout-emphasized"
+            onClick={() => void navigator.clipboard.writeText(link).then(() => setCopied(true))}
+            title={link}
+          >
+            {copied ? <Check size={15} /> : <Copy size={15} />}
+            {copied ? 'Copied Link' : 'Copy Invite Link'}
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-pill bg-quaternary px-3.5 py-1.5 type-callout-emphasized"
+            onClick={() => void navigator.clipboard.writeText(discordCardText).then(() => setCopiedDiscordCard(true))}
+          >
+            {copiedDiscordCard ? <Check size={15} /> : <Copy size={15} />}
+            {copiedDiscordCard ? 'Copied Discord Card' : 'Copy Discord Jam Card'}
+          </button>
+        </div>
       </div>
 
       <h2 className={settingsUi.sectionHeader}>
@@ -254,6 +389,51 @@ function InParty() {
             </span>
           </div>
         ))}
+      </section>
+
+      <h2 className={settingsUi.sectionHeader}>Discord Jam Broadcaster</h2>
+      <section className={settingsUi.group}>
+        <label className={settingsUi.controlRow}>
+          <span>Channel Webhook</span>
+          <input
+            className={settingsUi.input}
+            placeholder="https://discord.com/api/webhooks/..."
+            value={webhookUrl}
+            onChange={(e) => {
+              const v = e.currentTarget.value;
+              setWebhookUrl(v);
+              localStorage.setItem(WEBHOOK_STORAGE_KEY, v);
+            }}
+          />
+        </label>
+        <div className={settingsUi.row}>
+          <span className={settingsUi.rowText}>
+            <span>Post Live Jam to Discord Channel</span>
+            <span className={settingsUi.rowDetail}>{discordNotice ?? 'Sends an embed with room code & Web/Android links.'}</span>
+          </span>
+          <button
+            className={primary}
+            disabled={!webhookUrl.trim() || discordShare.isPending}
+            onClick={() => {
+              setDiscordNotice(null);
+              discordShare.mutate();
+            }}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Send size={13} />
+              <span>{discordShare.isPending ? 'Sending…' : 'Send to Discord'}</span>
+            </span>
+          </button>
+        </div>
+        <div className={settingsUi.row}>
+          <span className={settingsUi.rowText}>
+            <span>Discord Rich Presence</span>
+            <span className={settingsUi.rowDetail}>Connect your Discord account status & listening card.</span>
+          </span>
+          <button className={settingsUi.inlineButton} onClick={() => navigate('/settings/discord')}>
+            Settings
+          </button>
+        </div>
       </section>
 
       <h2 className={settingsUi.sectionHeader}>Party</h2>
